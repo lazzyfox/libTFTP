@@ -5,6 +5,9 @@ set (CMAKE_CXX_COMPILER_VERSION 11)
 set(CMAKE_CXX_COMPILER "/usr/bin/g++-11")
 set(CMAKE_C_COMPILER ${C_COMPILER})
 set(CMAKE_CXX_FLAGS "-std=c++20 -Wall -Wextra -fPIC")
+# Find additional packages
 find_package(GTest CONFIG REQUIRED)
+find_package(CURL::libcurl CONFIG REQURED)
+# Creating tests
 add_executable(tftp_test test.cpp)
 target_link_libraries(clio_test PRIVATE GTest::gtest)

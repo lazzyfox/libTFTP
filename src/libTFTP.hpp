@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 
-/*! \mainpage Project clidict Index Page
+/*! \mainpage Project TFTP server library Index Page
  *
  * \section intro_sec Introduction
  *
@@ -57,6 +57,7 @@ SOFTWARE.
 #include <cstdlib>
 #include <cctype>
 #include <utility>
+#include <ranges>
 #include <unordered_map>
 #include <tuple>
 #include <queue>
@@ -134,9 +135,18 @@ namespace {
   constexpr uint8_t PACKET_DATA_OVERHEAD {5};
   constexpr int8_t SOCKET_ERR {-1};
 
+  //  Packet structure
   constexpr uint8_t DATA_OPCODE_FIELD {1};
   constexpr uint8_t DATA_PACKET_NUMBER_FIELD {3};
   constexpr uint8_t DATA_PACKET_FIELD {4};
+
+  //  Packet minimum size to check consistence
+  constexpr uint8_t READ_MIN_SIZE {6};
+  constexpr uint8_t WRITE_MIN_SIZE {7};
+  constexpr uint8_t DATA_MIN_SIZE {5};
+  constexpr uint8_t ACK_MIN_SIZE {4};
+  constexpr uint8_t ERROR_MIN_SIZE {6};
+  constexpr uint8_t OACK_MIN_SIZE {6};
 
   constexpr char FILE_OPENEN_ERR[] {"Can't open file\0"};
   constexpr size_t FILE_OPENEN_ERR_SIZE {22};
@@ -252,7 +262,6 @@ namespace {
     }
   };
 
-  template <typename T> requires TransType<T>
   struct DefaultACKPack {
     struct Data{
       uint16_t op_code;
@@ -393,7 +402,8 @@ namespace {
     optional<vector<ReqParam>> req_params;
 
     //  Sorting data and creating data map
-    void makeFrameStruct(void) {
+    bool makeFrameStruct(size_t pack_size) {
+      bool ret{false};
       unsigned char hi, lo;
 
       auto getPackRealSize = [this] () {
@@ -521,8 +531,23 @@ namespace {
       hi = packet[0];
       lo = packet[1];
       auto opcode {(hi<<8)|lo};
+
+      //  Check packet consistence
+      switch (opcode) {
+        case (int) TFTPOpeCode::TFTP_OPCODE_READ : ret = (pack_size < READ_MIN_SIZE) ? true : false; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_WRITE : ret = (pack_size < WRITE_MIN_SIZE) ? true : false; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_DATA : ret = (pack_size < DATA_MIN_SIZE) ? true : false; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_ACK : ret = (pack_size < ACK_MIN_SIZE) ? true : false; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_ERROR : ret = (pack_size < ERROR_MIN_SIZE) ? true : false; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_OACK : ret = (pack_size < OACK_MIN_SIZE) ? true : false; break;
+        default : ret = false;
+      }
+      if (!ret) {
+        return ret;
+      }
       auto dataLayOut{req_data.at(opcode)};
       dataLayOut(opcode);
+      return ret;
    }
    //  Extract data for creating file name for transfer begin request
   };
@@ -739,7 +764,7 @@ namespace {
           write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
         }
       }
-      //  Data trnsfer file operations constructors
+      //  Data transfer file operations constructors
       FileIO (const fs::path file_name, const bool read, const bool bin) : file_name{file_name} {
         if (fs::exists(file_name)) {
           if (read) {
@@ -1025,7 +1050,7 @@ namespace {
          }
       }
 
-      //  Send to client OACK paket
+      //  Send to client OACK packet
       bool sendOACK(uint16_t buff_size = 0, uint8_t timeout = 0, size_t file_size = 0) noexcept {
         bool ret = true;
         uint16_t packet_size;
@@ -1142,9 +1167,9 @@ namespace {
         data->clear();
         valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, MSG_WAITALL, (struct sockaddr*) &cliaddr, &cli_addr_size);
         if (valread == SOCKET_ERR) {
-          ret = false;
+          return false;
         }
-        data->makeFrameStruct();
+        ret = data->makeFrameStruct(valread);
         return ret;
       }
       //  Send error to client

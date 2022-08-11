@@ -1,0 +1,5 @@
+CMakeLists.txt
+.vscode
+old_CMakeLists.txt
+src/main.cpp
+build/
