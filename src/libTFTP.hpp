@@ -754,7 +754,7 @@ namespace {
       bool file_is_open{false};
       bool bin_file{false};
       //  Log file constructors
-      explicit FileIO (const fs::path file_name) {
+      explicit FileIO (const fs::path file_name) : file_name {file_name} {
         write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
       }
       FileIO (const fs::path file_name , const bool reset_file) {
@@ -877,11 +877,11 @@ namespace {
   //  Log to file
   class Log final : public FileIO {
     public :
-      Log (const fs::path log_fl, const bool debug) : FileIO(log_fl), debug{debug}{}
+      Log (const fs::path log_fl, const bool debug) : FileIO(log_fl), debug{debug} {}
       Log (const fs::path log_fl , const bool renew_log , const bool debug)
-        : FileIO{log_fl, renew_log}, debug{debug}{}
+        : FileIO{log_fl, renew_log}, debug{debug} {}
       Log (const fs::path log_fl , const bool renew_log , const bool debug, const bool terminal)
-        : Log{log_fl ,renew_log , debug}{this->terminal = terminal;}
+        : Log{log_fl ,renew_log , debug} {this->terminal = terminal;}
 
       Log (const Log&) = delete;
       Log (const Log&&) = delete;
@@ -913,17 +913,18 @@ namespace {
     protected :
       bool write (const string_view msg, const string_view source, const LogSeverety severety) noexcept {
         bool ret{false};
-        string log_msg, msg_severety;
+        string msg_severety;
+        time_t ttime = time(0);
+        string log_msg{ctime(&ttime)};
+
         switch (severety) {
           case LogSeverety::Error : msg_severety = "Error"; break;
           case LogSeverety::Warning : msg_severety = "Warning"; break;
           case LogSeverety::Information : msg_severety = "Information"; break;
           case LogSeverety::Debug : msg_severety = "Debug"; break;
-          default :;
+          default : msg_severety = "Information";
         }
-        time_t ttime = time(0);
-        char* dt = ctime(&ttime);
-        log_msg = dt;
+
         log_msg.pop_back();
         log_msg += " : ";
         log_msg += msg_severety;
@@ -933,10 +934,14 @@ namespace {
         log_msg += msg;
         log_msg += ";";
         log_msg += "\n";
-        ret = FileIO::write(log_msg);
+
         if (terminal) {
           std::cout<<log_msg<<std::endl<<std::flush;
+          ret = true;
+        } else {
+          ret = FileIO::write(log_msg);
         }
+
         return ret;
       }
 
