@@ -534,12 +534,12 @@ namespace {
 
       //  Check packet consistence
       switch (opcode) {
-        case (int) TFTPOpeCode::TFTP_OPCODE_READ : ret = (pack_size < READ_MIN_SIZE) ? true : false; break;
-        case (int) TFTPOpeCode::TFTP_OPCODE_WRITE : ret = (pack_size < WRITE_MIN_SIZE) ? true : false; break;
-        case (int) TFTPOpeCode::TFTP_OPCODE_DATA : ret = (pack_size < DATA_MIN_SIZE) ? true : false; break;
-        case (int) TFTPOpeCode::TFTP_OPCODE_ACK : ret = (pack_size < ACK_MIN_SIZE) ? true : false; break;
-        case (int) TFTPOpeCode::TFTP_OPCODE_ERROR : ret = (pack_size < ERROR_MIN_SIZE) ? true : false; break;
-        case (int) TFTPOpeCode::TFTP_OPCODE_OACK : ret = (pack_size < OACK_MIN_SIZE) ? true : false; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_READ : ret = (pack_size < READ_MIN_SIZE) ? false : true; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_WRITE : ret = (pack_size < WRITE_MIN_SIZE) ? false : true; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_DATA : ret = (pack_size < DATA_MIN_SIZE) ? false : true; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_ACK : ret = (pack_size < ACK_MIN_SIZE) ? false : true; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_ERROR : ret = (pack_size < ERROR_MIN_SIZE) ? false : true; break;
+        case (int) TFTPOpeCode::TFTP_OPCODE_OACK : ret = (pack_size < OACK_MIN_SIZE) ? false : true; break;
         default : ret = false;
       }
       if (!ret) {
