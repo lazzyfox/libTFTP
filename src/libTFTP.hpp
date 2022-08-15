@@ -406,38 +406,44 @@ namespace {
       bool ret{false};
       unsigned char hi, lo;
 
-      auto getPackRealSize = [this] () {
-        ushort zero_count{0};
-        size_t packet_size{0};
-        while (packet_size < size) {
-          if (packet[packet_size] == '\0' && zero_count == 4) {
-            break;
-          }
-          if (packet[packet_size] == '\0') {
-            ++zero_count;
-          }
-          if (packet[packet_size] != '\0' && zero_count) {
-            zero_count = 0;
-          }
-          ++packet_size;
-        }
-        return packet_size - 4;
-      };
+      // auto getPackRealSize = [this] () {
+      //   ushort zero_count{0};
+      //   size_t packet_size{0};
+      //   while (packet_size < size) {
+      //     if (packet[packet_size] == '\0' && zero_count == 4) {
+      //       break;
+      //     }
+      //     if (packet[packet_size] == '\0') {
+      //       ++zero_count;
+      //     }
+      //     if (packet[packet_size] != '\0' && zero_count) {
+      //       zero_count = 0;
+      //     }
+      //     ++packet_size;
+      //   }
+      //   return packet_size - 4;
+      // };
 
-      auto reqRW = [this, getPackRealSize](int opcode) {
+      auto reqRW = [this, pack_size](int opcode) ->bool {
+         bool ret {true};
          uint16_t count_begin {2}, count_end{2}, count_mode;
          string transf_mode, buffer, file_name;
          vector <ReqParam> options{};
-         const size_t msg_size {getPackRealSize()};
-
+         
          //  Message content end position count
          while (packet[count_end] != '\0') {
            ++count_end;
+           if (count_end > pack_size) {
+            return false;
+           }
          }
 
          //  Transfer mode check
          count_mode = count_end + 1;
          do {
+           if (count_mode > pack_size) {
+             return false;
+           }
            transf_mode += packet[count_mode];
            ++count_mode;
          } while (packet[count_mode] != '\0');
@@ -451,38 +457,59 @@ namespace {
 
         //  Get file name
         for (auto fl_name_count = count_begin; fl_name_count < count_end; ++fl_name_count) {
+          if (fl_name_count > pack_size) {
+            return false;
+          }
           file_name += packet[fl_name_count];
         }
         std::get<6>(packet_frame_structure) = optional<string>(file_name);
 
         //  Check additional options according RFC 1782 and above
         ++count_mode;
-        while (count_mode < msg_size) {
+        if (count_mode > pack_size) {
+          return false;
+        }
+        while (count_mode < pack_size) {
           transf_mode.clear();
+        
           do {
             if (packet[count_mode] == '\0') {
               continue;
             }
             transf_mode += packet[count_mode];
             ++count_mode;
+            if (count_mode > pack_size) {
+              return false;
+            }
           } while (packet[count_mode] != '\0');
+
           buffer.clear();
+          
           do {
+            if (count_mode > pack_size) {
+              return false;
+            } 
             buffer += packet[++count_mode];
           } while (packet[count_mode] != '\0');
+          
           count_begin = stoi(buffer);
           options.emplace_back(std::make_pair(transf_mode, count_begin));
           ++count_mode;
         }
+        
         if (!options.empty()) {
           req_params.emplace(options);
         }
+        return ret;
      };
 
-      auto getData = [this](int opcode) {
-         //char dat_str[sizeof(packet) - 5];
-         //uint16_t msg_count {0};
+      auto getData = [this, pack_size](int opcode) ->bool {
+         bool ret {true};
          unsigned char hi, lo;
+
+         if (pack_size < DATA_MIN_SIZE) {
+           return false;
+         }
 
          //Block number
          hi = packet[2];
@@ -494,10 +521,16 @@ namespace {
          std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
          std::get<4>(packet_frame_structure) = optional<uint16_t>(5);
          std::get<5>(packet_frame_structure) = optional<uint16_t>(sizeof(packet) - 5);
+         return ret;
       };
 
-      auto getACK = [this](int opcode) {
+      auto getACK = [this, pack_size](int opcode) -> bool{
+         bool ret {true};
          unsigned char hi, lo;
+
+         if (pack_size < ACK_MIN_SIZE) {
+           return false;
+         }
 
          //Block number
          hi = packet[2];
@@ -509,10 +542,16 @@ namespace {
          std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
          std::get<4>(packet_frame_structure) = optional<uint16_t>{};
          std::get<5>(packet_frame_structure) = optional<uint16_t>{};
+         return ret;
       };
 
-      auto getERROR = [this](int opcode) {
+      auto getERROR = [this, pack_size](int opcode) ->bool {
+         bool ret {true};
          unsigned char hi, lo;
+
+         if (pack_size < ERROR_MIN_SIZE) {
+           return false;
+         }
 
          //Error number
          hi = packet[2];
@@ -524,10 +563,11 @@ namespace {
          std::get<3>(packet_frame_structure) = optional<uint16_t>{};
          std::get<4>(packet_frame_structure) = optional<uint16_t>{5};
          std::get<5>(packet_frame_structure) = optional<uint16_t>{sizeof(packet) - 5};
+         return ret;
        };
 
 
-      const unordered_map<int, function<void(int)>> req_data {{1, reqRW}, {2, reqRW}, {3, getData}, {4, getACK}, {5, getERROR}};
+      const unordered_map<int, function<bool(int)>> req_data {{1, reqRW}, {2, reqRW}, {3, getData}, {4, getACK}, {5, getERROR}};
       hi = packet[0];
       lo = packet[1];
       auto opcode {(hi<<8)|lo};
@@ -546,7 +586,7 @@ namespace {
         return ret;
       }
       auto dataLayOut{req_data.at(opcode)};
-      dataLayOut(opcode);
+      ret = dataLayOut(opcode);
       return ret;
    }
    //  Extract data for creating file name for transfer begin request
@@ -1470,7 +1510,7 @@ namespace TFTPSrvLib {
         }
         return ret;
       }
-      //  Gracefull server shutdown
+      //  Graceful server shutdown
       bool srvStop(const size_t iteration_number = 60, const size_t port_number = DEFAULT_PORT) noexcept {
         bool ret{true};
         stop_worker = true;

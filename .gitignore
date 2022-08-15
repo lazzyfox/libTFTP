@@ -3,3 +3,4 @@ CMakeLists.txt
 old_CMakeLists.txt
 src/main.cpp
 build/
+tests/build
