@@ -589,7 +589,6 @@ namespace {
       ret = dataLayOut(opcode);
       return ret;
    }
-   //  Extract data for creating file name for transfer begin request
   };
 
   template <typename T> requires TransType<T>
@@ -597,7 +596,7 @@ namespace {
     size_t size;
     T* buff{nullptr};
     size_t pos{2};
-    uint16_t code{3};
+    const uint16_t code{3};
     uint16_t op_code {htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_DATA)};
 //    uint16_t op_code {3};
     const uint16_t overhead_field_size {sizeof(op_code)};
@@ -648,6 +647,8 @@ namespace {
 
   struct ACKPacket final : BasePacket <PACKET_ACK_SIZE, char> {
     const uint16_t op_code {4};
+    ACKPacket() = default;
+    ACKPacket(const uint16_t pack_number) {setNumber(pack_number);};
     void setNumber (const uint16_t pack_number) {
       constexpr uint16_t op_code {4};
       BasePacket<PACKET_ACK_SIZE, char>::clear();
