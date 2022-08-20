@@ -47,14 +47,31 @@ TEST (DataPacket, CharData) {
 }
 
 // RFC 783-1350 ACK packet
-TEST (ACKPacket, CharData) {
-  ReadFileData<char> msg{4};
-  SendData<char> data{4};
-  memcpy (msg.data, &test, sizeof(test));
-  data.setData(1, &msg);
-  // for ()
+TEST (ACKPacket, MinVal) {
+  ACKPacket data{0};
+  const uint16_t ex_pack_num{0};
+  const uint16_t ex_op_code{4};
+  uint16_t net_pack_num, net_op_code;
+  memcpy(&net_op_code, data.packet, sizeof(uint16_t));
+  memcpy(&net_pack_num, &data.packet[2], sizeof(uint16_t));
+  auto op_code{ntohs(net_op_code)};
+  auto pack_num{ntohs(net_pack_num)};
+  EXPECT_EQ (op_code, ex_op_code);  
+  EXPECT_EQ (pack_num, ex_pack_num); 
 }
 
+TEST (ACKPacket, MaxVal) {
+  ACKPacket data{std::numeric_limits<uint16_t>::max()};
+  const uint16_t ex_pack_num{std::numeric_limits<uint16_t>::max()};
+  const uint16_t ex_op_code{4};
+  uint16_t net_pack_num, net_op_code;
+  memcpy(&net_op_code, data.packet, sizeof(uint16_t));
+  memcpy(&net_pack_num, &data.packet[2], sizeof(uint16_t));
+  auto op_code{ntohs(net_op_code)};
+  auto pack_num{ntohs(net_pack_num)};
+  EXPECT_EQ (op_code, ex_op_code);  
+  EXPECT_EQ (pack_num, ex_pack_num);  
+}
 
 GTEST_API_ int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);

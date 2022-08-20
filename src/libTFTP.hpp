@@ -631,14 +631,15 @@ namespace {
   };
 
   struct ACKPacket final : BasePacket <PACKET_ACK_SIZE, char> {
-    const uint16_t op_code {(uint16_t)TFTPOpeCode::TFTP_OPCODE_ACK};
+    
+    const uint16_t op_code{htons(4)};
     ACKPacket() = default;
     ACKPacket(const uint16_t pack_number) {setNumber(pack_number);};
     void setNumber (const uint16_t pack_number) {
-      // const uint16_t op_code {htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_ACK)}; // TODO: delete later!
+      const uint16_t num{htons(pack_number)};
       BasePacket<PACKET_ACK_SIZE, char>::clear();
-      memcpy(&BasePacket<PACKET_ACK_SIZE, char>::packet[1], &op_code, sizeof(op_code));
-      memmove(&BasePacket<PACKET_ACK_SIZE, char>::packet[3], &pack_number, sizeof(pack_number));
+      memcpy(&BasePacket<PACKET_ACK_SIZE, char>::packet[0], &op_code, sizeof(op_code));
+      memmove(&BasePacket<PACKET_ACK_SIZE, char>::packet[2], &num, sizeof(pack_number));
     }
   };
 
