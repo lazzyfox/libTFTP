@@ -262,21 +262,6 @@ namespace {
     }
   };
 
-  struct DefaultACKPack {
-    struct Data{
-      uint16_t op_code;
-      uint16_t packet_number;
-    } data;
-    DefaultACKPack() {data.op_code = htons((uint8_t)TFTPOpeCode::TFTP_OPCODE_ACK);}
-    bool setData (uint16_t number) noexcept {
-      bool ret{false};
-      if (number > std::numeric_limits<uint16_t>::max()) {
-        return ret;
-      }
-      data.packet_number = htons(number);
-      return ret;
-    }
-  };
   template <size_t packet_size, typename T> requires TransType<T>
   struct BasePacket {
     const size_t size {packet_size};
@@ -628,11 +613,11 @@ namespace {
 
   template <typename T> requires TransType<T>
   struct DataPacket final : Packet<T>, PacketTools<T> {
-    DataPacket (size_t size) : Packet<T>{size}, PacketTools<T>{} {}
+    DataPacket (size_t size) : Packet<T>{size * 2 * sizeof(uint16_t)}, PacketTools<T>{} {}
     void makeFrameStruct(void) noexcept {
 //      hi = packet[0];
 //      lo = packet[1];
-//      auto opcode {(hi<<8)|lo};
+    //  auto opcode {(hi<<8)|lo};
       auto opcode {ntohs((uint32_t)Packet<T>::packet[1])};
       auto dataLayOut{PacketTools<T>::req_data.at(opcode)};
       dataLayOut(opcode, Packet<T>::packet);
@@ -646,11 +631,11 @@ namespace {
   };
 
   struct ACKPacket final : BasePacket <PACKET_ACK_SIZE, char> {
-    const uint16_t op_code {4};
+    const uint16_t op_code {(uint16_t)TFTPOpeCode::TFTP_OPCODE_ACK};
     ACKPacket() = default;
     ACKPacket(const uint16_t pack_number) {setNumber(pack_number);};
     void setNumber (const uint16_t pack_number) {
-      constexpr uint16_t op_code {4};
+      // const uint16_t op_code {htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_ACK)}; // TODO: delete later!
       BasePacket<PACKET_ACK_SIZE, char>::clear();
       memcpy(&BasePacket<PACKET_ACK_SIZE, char>::packet[1], &op_code, sizeof(op_code));
       memmove(&BasePacket<PACKET_ACK_SIZE, char>::packet[3], &pack_number, sizeof(pack_number));
