@@ -39,7 +39,7 @@ TEST(Packet, CharData) {
 
 // Data transfer packet
 TEST (DataPacket, CharData) {
-  DataPacket<char> msg{4};
+  ReadFileData<char> msg{4};
   SendData<char> data{4};
   memcpy (msg.data, &test, sizeof(test));
   data.setData(1, &msg);
@@ -48,7 +48,7 @@ TEST (DataPacket, CharData) {
 
 // RFC 783-1350 ACK packet
 TEST (ACKPacket, CharData) {
-  DataPacket<char> msg{4};
+  ReadFileData<char> msg{4};
   SendData<char> data{4};
   memcpy (msg.data, &test, sizeof(test));
   data.setData(1, &msg);
