@@ -380,7 +380,7 @@ namespace {
       memmove(&data_frame[DATA_PACKET_FIELD], data_in->data, sizeof(T) * data_in->size);
     }
   };
-
+  //  Connection (transfer) request from client 
   struct ReadPacket final : BasePacket <PACKET_MAX_SIZE, char> {
     tuple<TFTPOpeCode, //  Operation Code
       optional<TFTPError>, //  Error ID
@@ -563,40 +563,28 @@ namespace {
       return ret;
     }
   };
-
+  // Send data to client (according clients download request)
   template <typename T> requires TransType<T>
-  struct SendData {
-    size_t size;
-    T* buff{ nullptr };
+  struct SendData final :  Packet<T> {
     size_t pos{ 2 };
-    const uint16_t code{ 3 };
     uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_DATA) };
-    //    uint16_t op_code {3};
     const uint16_t overhead_field_size{ sizeof(op_code) };
 
-    SendData(size_t msg_size) {
-      size = msg_size + 2 * sizeof(uint16_t);
-      //      buff =(char*) malloc(size);
-      buff = new  T[size];
-      memcpy(buff, &op_code, overhead_field_size);
-      //      auto n{ntohs(*buff)};
-      std::cout << ntohs((uint16_t)(*buff)) << std::endl << std::flush;
+    SendData(size_t msg_size) : Packet<T>{msg_size + 2 * sizeof(uint16_t)} {
+      memcpy(Packet<T>::packet, &op_code, overhead_field_size);
+      std::cout << ntohs((uint16_t)Packet<T>::packet[0]) << std::endl << std::flush;
     }
     bool setData(uint16_t pack_count, ReadFileData<T>* msg) {
       bool ret{ false };
-      ret = memcpy(buff + pos, &pack_count, overhead_field_size);
-      std::cout << (uint16_t) * (buff + pos) << std::endl << std::flush;
+      auto net_pack_code{htons(pack_count)};
+      ret = memcpy(Packet<T>::packet + pos, &net_pack_code, overhead_field_size);
+      std::cout << (uint16_t) * (Packet<T>::packet + pos) << std::endl << std::flush;
       pos += overhead_field_size;
-      ret = memcpy(buff + pos, msg->data, msg->size);
-      std::cout << (char*)(buff + pos) << std::endl << std::flush;
+      ret = memcpy(Packet<T>::packet + pos, msg->data, msg->size); //TODO: Here  is a bug - in assailment - probably wrong position count
+      std::cout << (char*)(Packet<T>::packet + pos) << std::endl << std::flush;
       return ret;
     }
-    ~SendData() {
-      if (buff) {
-        //        free (buff);
-        delete[] buff;
-      }
-    }
+    ~SendData() = default;
   };
 
   template <typename T> requires TransType<T>
