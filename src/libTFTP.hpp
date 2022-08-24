@@ -123,7 +123,7 @@ namespace {
 
 
   constexpr string_view lib_ver{ "0.0.3" };
-  constexpr string_view lib_hellow{ "TFTP srv library ver - " };
+  constexpr string_view lib_hello{ "TFTP srv library ver - " };
 
   constexpr uint8_t DEFAULT_PORT{ 69 };
   constexpr uint16_t SERVICE_PORT{ 8099 };
@@ -154,9 +154,9 @@ namespace {
   constexpr size_t FILE_READ_ERR_SIZE{ 22 };
   constexpr char DATA_REORDER_ERR[]{ "Can't read file\0" };
   constexpr size_t DATA_REORDER_ERR_SIZE{ 26 };
-  constexpr char FILE_EXISTS_ERR[]{ "File alredy exists\0" };
+  constexpr char FILE_EXISTS_ERR[]{ "File already exists\0" };
   constexpr size_t FILE_EXISTS_ERR_SIZE{ 25 };
-  constexpr char MAX_PACK_NUMBER_ERR[]{ "Packet number exeeds\0" };
+  constexpr char MAX_PACK_NUMBER_ERR[]{ "Packet number exceeds\0" };
   constexpr size_t MAX_PACK_NUMBER_ERR_SIZE{ 27 };
 
 
@@ -244,6 +244,7 @@ namespace {
 
   //  Data transfer types
   //  Oldfashinal TFTP data packet of 512B data block size
+  //  TODO: Should be removed later
   template <typename T> requires TransType<T>
   struct DefaultDataPack {
     struct Data {
@@ -304,6 +305,7 @@ namespace {
     }
   };
   //  Set of methods to analyze or create packets
+  // TODO: Check htons/ntohs methods
   template <typename T> requires TransType<T>
   struct PacketTools {
     unsigned char hi, lo;
@@ -320,7 +322,7 @@ namespace {
 //       hi = pack[2];
 //       lo = pack[3];
 //       auto block_number {(hi<<8)|lo};
-      auto block_number{ ntohs((uint16_t)pack[3]) };
+      auto block_number{ ntohs((uint16_t)pack[2]) };
       std::get<0>(packet_frame_structure) = OptCode.at(opcode);
       std::get<1>(packet_frame_structure) = optional<TFTPError>{};
       std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -333,7 +335,7 @@ namespace {
 //       hi = pack[2];
 //       lo = pack[3];
 //       auto block_number {(hi<<8)|lo};
-      auto block_number{ ntohl((uint16_t)pack[3]) };
+      auto block_number{ ntohl((uint16_t)pack[2]) };
       std::get<0>(packet_frame_structure) = OptCode.at(opcode);
       std::get<1>(packet_frame_structure) = optional<TFTPError>{};
       std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -346,7 +348,7 @@ namespace {
 //       hi = pack[2];
 //       lo = pack[3];
 //       auto error_code {(hi<<8)|lo};
-      uint8_t error_code{ (uint8_t)pack[3] };
+      uint8_t error_code{ (uint8_t)pack[2] };
       std::get<0>(packet_frame_structure) = OptCode.at(opcode);
       std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
       std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -565,23 +567,24 @@ namespace {
   };
   // Send data to client (according clients download request)
   template <typename T> requires TransType<T>
-  struct SendData final :  Packet<T> {
+  struct SendData final : public Packet<T> {
     size_t pos{ 2 };
-    uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_DATA) };
+    const uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_DATA) };
     const uint16_t overhead_field_size{ sizeof(op_code) };
 
     SendData(size_t msg_size) : Packet<T>{msg_size + 2 * sizeof(uint16_t)} {
       memcpy(Packet<T>::packet, &op_code, overhead_field_size);
-      std::cout << ntohs((uint16_t)Packet<T>::packet[0]) << std::endl << std::flush;
+      // Packet<T>::packet[0] = '0';
+      // Packet<T>::packet[1] = '3';
     }
     bool setData(uint16_t pack_count, ReadFileData<T>* msg) {
       bool ret{ false };
-      auto net_pack_code{htons(pack_count)};
+      const auto net_pack_code{htons(pack_count)};
       ret = memcpy(Packet<T>::packet + pos, &net_pack_code, overhead_field_size);
-      std::cout << (uint16_t) * (Packet<T>::packet + pos) << std::endl << std::flush;
+      // Packet<T>::packet[2] = '0';
+      // Packet<T>::packet[3] = pack_count;
       pos += overhead_field_size;
-      ret = memcpy(Packet<T>::packet + pos, msg->data, msg->size); //TODO: Here  is a bug - in assailment - probably wrong position count
-      std::cout << (char*)(Packet<T>::packet + pos) << std::endl << std::flush;
+      ret = memcpy(Packet<T>::packet + pos, msg->data, msg->size); 
       return ret;
     }
     ~SendData() = default;
@@ -594,7 +597,9 @@ namespace {
       //      hi = packet[0];
       //      lo = packet[1];
           //  auto opcode {(hi<<8)|lo};
-      auto opcode{ ntohs((uint32_t)Packet<T>::packet[1]) };
+      uint16_t net_code;
+      memcpy(&net_code, Packet<T>::packet, sizeof(uint16_t));
+      const auto opcode{ ntohs(net_code) };
       auto dataLayOut{ PacketTools<T>::req_data.at(opcode) };
       dataLayOut(opcode, Packet<T>::packet);
     }
@@ -605,7 +610,7 @@ namespace {
     ~DataPacket() = default;
 
   };
-  //  
+  // RFC 783-1350 (Oldfashinal) request acknowledgement packet 
   struct ACKPacket final : BasePacket <PACKET_ACK_SIZE, char> {
 
     const uint16_t op_code{ htons(4) };
@@ -971,9 +976,9 @@ namespace {
     const size_t buff_size{ 512 };
     const size_t timeout{ 3 };
     const size_t file_size{ 0 };
-    struct sockaddr_storage cliaddr;  //  Client connection address
-    socklen_t  cli_addr_size{ sizeof(cliaddr) };
-    int sock_id{ 0 };
+    struct sockaddr_storage cliaddr;  //  Client connection address //  TODO Remove after debug
+    socklen_t  cli_addr_size{ sizeof(cliaddr) };  //  TODO Remove after debug
+    int sock_id{ 0 };  //  TODO Remove after debug
 
     BaseNet(size_t port) : port{ port } {
       if (!init(port)) {
@@ -1109,11 +1114,11 @@ namespace {
   protected:
     //  Socket params
     const size_t port;
-    //int sock_id{0};
+    //int sock_id{0}; //TODO: remove comments after debug
     struct sockaddr_in address, servaddr;
     int opt = 1;
     int addrlen = sizeof(address);
-    //      socklen_t  cli_addr_size;
+    //      socklen_t  cli_addr_size;  //TODO: remove comments after debug
 
     string getERRNO(void) {
       string err_str;
@@ -1471,12 +1476,12 @@ namespace TFTPSrvLib {
       this->log = log;
     }
 
-    //  Starting server - running up session manager to wait incomming clients connections
+    //  Starting server - running up session manager to wait incoming clients connections
     bool srvStart(void) noexcept {
       bool ret{ false };
       if (log) {
         string msg{ "Starting server" };
-        msg += lib_hellow;
+        msg += lib_hello;
         msg += lib_ver;
         log->infoMsg(__PRETTY_FUNCTION__, msg);
       }
@@ -1536,11 +1541,11 @@ namespace TFTPSrvLib {
       }
       return ret;
     }
-    bool srvTerminate(void) {}
-    bool transferStop(std::thread::id id) {}
-    bool transferTerminate(std::thread::id id) {}
-    bool srvStatus(void) {}
-    bool procStat(std::thread::id id) {}
+    bool srvTerminate(void) {bool ret{true}; return ret;}
+    bool transferStop(std::thread::id id) {bool ret{true}; return ret;}
+    bool transferTerminate(std::thread::id id) {bool ret{true}; return ret;}
+    bool srvStatus(void) {bool ret{true}; return ret;}
+    bool procStat(std::thread::id id) {bool ret{true}; return ret;}
 
   private:
     size_t max_threads{ 8 };
@@ -1662,14 +1667,14 @@ namespace TFTPSrvLib {
         log->debugMsg("Thread ID" + thr_id, "Finished");
       }
     }
-    //  Clent connections manager
+    //  Client connections manager
     void sessionMgr(void) {
       bool valread;
       ReadPacket data;
       fs::path requested_file;
       TFTPOpeCode request_code;
 
-      //  Getting transfer parametrs from client request
+      //  Getting transfer parameters from client request
       auto getSockParam = [](vector<ReqParam>* param_vec, OptExtent param_type) {
         size_t param_val{ 0 };
         string param_name;
@@ -1707,7 +1712,7 @@ namespace TFTPSrvLib {
         //  Read request processing
         if (request_code == TFTPOpeCode::TFTP_OPCODE_READ) {
 
-          //  Check if file exists and accesible
+          //  Check if file exists and accessible
           requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
           std::ifstream r_file{ requested_file };
           if (!r_file) {
@@ -1721,7 +1726,7 @@ namespace TFTPSrvLib {
             checkParam(&data.req_params.value(), file_size);
           }
 
-          //  Create parametrs set to start transfer session
+          //  Create parameters set to start transfer session
           auto work{ getRes() };
           std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
           std::get<1>(*work.second) = true;
@@ -1733,7 +1738,7 @@ namespace TFTPSrvLib {
           }
           std::get<3>(*work.second) = 0;
 
-          //  Check if additional parametrs (RFC 1782) are present
+          //  Check if additional parameters (RFC 1782) are present
           if (data.req_params.has_value()) {
             auto add_param_set{ data.req_params.value() };
             if (auto param{ getSockParam(&add_param_set, OptExtent::blksize) }; param) {
@@ -1759,7 +1764,7 @@ namespace TFTPSrvLib {
           work.first->notify_one();
         }
 
-        //  Write requst processing
+        //  Write request processing
         if (request_code == TFTPOpeCode::TFTP_OPCODE_WRITE) {
 
           //  Check if file already exists
@@ -1773,7 +1778,7 @@ namespace TFTPSrvLib {
             checkParam(&data.req_params.value(), file_size);
           }
 
-          //  Create parametrs set to start transfer session
+          //  Create parameters set to start transfer session
           auto work{ getRes() };
           std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
           std::get<1>(*work.second) = true;
@@ -1785,7 +1790,7 @@ namespace TFTPSrvLib {
           }
           std::get<3>(*work.second) = 0;
 
-          //  Check if additional parametrs (RFC 1782) are present
+          //  Check if additional parameters (RFC 1782) are present
           if (data.req_params.has_value()) {
             if (auto param{ getSockParam(&data.req_params.value(), OptExtent::blksize) }; param) {
               std::get<4>(*work.second) = param;

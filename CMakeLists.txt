@@ -10,6 +10,6 @@ add_test(NAME Test COMMAND tftp_srv_test)
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
-add_executable(tftp_srv /home/fox/tmp/libTFTP/src/main.cpp /home/fox/tmp/libTFTP/src/libTFTP.hpp)
+add_executable(tftp_srv /home/fox/fast_proj/libTFTP/src/main.cpp /home/fox/fast_proj/libTFTP/src/libTFTP.hpp)
 target_link_libraries(tftp_srv -lgcc -lstdc++ -ldl -lpthread)
 
