@@ -121,6 +121,62 @@ TEST (SendData, FullTest_Char) {
   EXPECT_EQ (pack_num, ex_pack_num);  
   EXPECT_STREQ(msg_str.c_str(), ex_str.c_str());
 }
+//  OACK packet
+TEST (OACK, TypicalRequest) {
+  const uint16_t ex_op_code{6};
+  uint16_t net_op_code, net_val;
+  const uint16_t ex_size_val{10};
+  const uint16_t ex_blk_val{512};
+  const uint16_t ex_timeout_val{6};
+  //char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '0', 't', 's', 'i', 'z', 'e', '0', '0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '0', '5', '1', '2', '0', 't', 'i', 'm', 'e', 'o', 'u', 't', '0', '6', '0'};  
+  auto t_size = make_pair("tsize", (uint16_t) 10); // Size = 9
+  auto blk_size = make_pair("blksize", (uint16_t) 512); // Size = 11
+  auto t_out = make_pair("timeout", (uint16_t) 6); // Size = 11
+  char pack_t_size[5];
+  char pack_blk_size[7];
+  char pack_t_out[7];
+  const string  str_size{"tsize"};
+  const string  str_blk{"blksize"};
+  const string  str_timeout{"timeout"};
+  
+  string  ex_str_blk;
+  string  ex_str_timeout;
+  
+  vector<ReqParam> param{t_size, blk_size, t_out};
+  OACKPacket pack{33};
+  pack.makeData(&param);
+
+  memcpy(&net_op_code, pack.packet, sizeof(uint16_t));
+  uint16_t const op_code{ntohs(net_op_code)};
+
+  memcpy(&pack_t_size, &pack.packet[2], sizeof(pack_t_size));
+  const string  pack_str_size{pack_t_size};
+  memcpy(&net_val, &pack.packet[9], sizeof(net_val));
+  const uint16_t net_size{ntohs(net_val)};
+
+  memcpy(&pack_blk_size, &pack.packet[11], sizeof(pack_blk_size));
+  const string  pack_str_blk{pack_blk_size};
+  memcpy(&net_val, &pack.packet[19], sizeof(net_val));
+  const uint16_t net_blk_size{ntohs(net_val)};
+
+  memcpy(&pack_t_out, &pack.packet[21], sizeof(pack_t_out));
+  const string  pack_str_timeout{pack_t_out};
+  memcpy(&net_val, &pack.packet[29], sizeof(net_val));
+  const uint16_t blk_timeout{ntohs(net_val)};
+
+
+  EXPECT_EQ (op_code, ex_op_code);  
+
+  EXPECT_STREQ(pack_str_size.c_str(), str_size.c_str());
+  EXPECT_EQ (net_size, ex_size_val);  
+  
+  EXPECT_STREQ(pack_str_blk.c_str(), str_blk.c_str());
+  EXPECT_EQ (net_blk_size, ex_blk_val);  
+
+  EXPECT_STREQ(pack_str_timeout.c_str(), str_timeout.c_str());
+  EXPECT_EQ (blk_timeout, ex_timeout_val);  
+}
+
 
 GTEST_API_ int main(int argc, char **argv) {
     testing::InitGoogleTest(&argc, argv);

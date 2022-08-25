@@ -202,7 +202,7 @@ namespace {
   };
 
   enum class LogSeverety : uint8_t { Error, Warning, Information, Debug };
-  constexpr string_view hellow{ "Hello from TFTP server V 0.1" };
+  constexpr string_view hello{ "Hello from TFTP server V 0.1" };
 
   using PacketContent = tuple<TFTPOpeCode, optional<TFTPError>, optional<string_view>, optional<TFTPMode>, optional<uint16_t>>;
   using ReqParam = pair<string, uint16_t>;
@@ -663,21 +663,24 @@ namespace {
   };
 
   struct OACKPacket : Packet <char> {
-    OACKPacket(size_t size) : Packet{ size } {}
-    const uint16_t op_code{ 6 };
+    //  Set size of total packet length - opcode + param ID + divided zero + param value rtc...
+    OACKPacket(size_t size) : Packet{ size} {}
+    const uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_OACK) };
     bool makeData(vector<ReqParam>* val) {
       bool ret{ true };
-      clear();
-      memcpy(&packet[1], &op_code, sizeof(op_code));
       uint16_t pos_count{ 2 };
       uint16_t opt_size;
+      uint16_t net_val;
+      clear();
+      memcpy(&packet[0], &op_code, sizeof(op_code));
 
       for (auto& option : *val) {
         opt_size = option.first.size();
         memcpy(&packet[pos_count], option.first.c_str(), opt_size);
-        pos_count += opt_size + 1;
-        memcpy(&packet[pos_count], &option.second, sizeof(option.second));
-        pos_count += 3;
+        pos_count += opt_size + 2;
+        net_val = htons(option.second);
+        memcpy(&packet[pos_count], &net_val, sizeof(net_val));
+        pos_count += 2;
       }
       return ret;
     }

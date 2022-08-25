@@ -12,4 +12,4 @@ set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
 add_executable(tftp_srv /home/fox/fast_proj/libTFTP/src/main.cpp /home/fox/fast_proj/libTFTP/src/libTFTP.hpp)
 target_link_libraries(tftp_srv -lgcc -lstdc++ -ldl -lpthread)
-
+add_custom_target(buildtests)
