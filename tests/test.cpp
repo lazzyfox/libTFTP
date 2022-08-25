@@ -145,6 +145,9 @@ TEST (OACK, TypicalRequest) {
   vector<ReqParam> param{t_size, blk_size, t_out};
   OACKPacket pack{33};
   pack.makeData(&param);
+  //  TODO: DELETE IN FINAL TEST VERSION
+  char a[31];
+  memcpy(&a, &pack.packet[2], 31);
 
   memcpy(&net_op_code, pack.packet, sizeof(uint16_t));
   uint16_t const op_code{ntohs(net_op_code)};
