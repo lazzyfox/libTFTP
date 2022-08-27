@@ -145,25 +145,22 @@ TEST (OACK, TypicalRequest) {
   vector<ReqParam> param{t_size, blk_size, t_out};
   OACKPacket pack{33};
   pack.makeData(&param);
-  //  TODO: DELETE IN FINAL TEST VERSION
-  char a[31];
-  memcpy(&a, &pack.packet[2], 31);
-
+  
   memcpy(&net_op_code, pack.packet, sizeof(uint16_t));
   uint16_t const op_code{ntohs(net_op_code)};
 
   memcpy(&pack_t_size, &pack.packet[2], sizeof(pack_t_size));
-  const string  pack_str_size{pack_t_size};
-  memcpy(&net_val, &pack.packet[9], sizeof(net_val));
+  const string  pack_str_size{pack_t_size, sizeof(pack_t_size)};
+  memcpy(&net_val, &pack.packet[8], sizeof(net_val));
   const uint16_t net_size{ntohs(net_val)};
 
-  memcpy(&pack_blk_size, &pack.packet[11], sizeof(pack_blk_size));
-  const string  pack_str_blk{pack_blk_size};
-  memcpy(&net_val, &pack.packet[19], sizeof(net_val));
+  memcpy(&pack_blk_size, &pack.packet[10], sizeof(pack_blk_size));
+  const string  pack_str_blk{pack_blk_size, sizeof(pack_blk_size)};
+  memcpy(&net_val, &pack.packet[18], sizeof(net_val));
   const uint16_t net_blk_size{ntohs(net_val)};
 
-  memcpy(&pack_t_out, &pack.packet[21], sizeof(pack_t_out));
-  const string  pack_str_timeout{pack_t_out};
+  memcpy(&pack_t_out, &pack.packet[20], sizeof(pack_t_out));
+  const string  pack_str_timeout{pack_t_out, sizeof(pack_t_out)};
   memcpy(&net_val, &pack.packet[29], sizeof(net_val));
   const uint16_t blk_timeout{ntohs(net_val)};
 

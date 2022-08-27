@@ -671,16 +671,26 @@ namespace {
       uint16_t pos_count{ 2 };
       uint16_t opt_size;
       uint16_t net_val;
+      const char zero_code{'0'};
       clear();
+      // TODO: Uncomment after debug!!!
       memcpy(&packet[0], &op_code, sizeof(op_code));
+      //  TODO: Delete after debuf!!!
+      //packet[0]='1';
+      //packet[1]='2';
 
       for (auto& option : *val) {
         opt_size = option.first.size();
         memcpy(&packet[pos_count], option.first.c_str(), opt_size);
-        pos_count += opt_size + 2;
+        pos_count += opt_size + 1;
+        memcpy(&packet[pos_count], &zero_code, sizeof(zero_code));
+        ++pos_count;
         net_val = htons(option.second);
         memcpy(&packet[pos_count], &net_val, sizeof(net_val));
-        pos_count += 2;
+        ++pos_count;
+        memcpy(&packet[pos_count], &zero_code, sizeof(zero_code));
+        ++pos_count;
+        // pos_count += 2;
       }
       return ret;
     }
