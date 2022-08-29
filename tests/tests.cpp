@@ -128,6 +128,7 @@ TEST (OACK, TypicalRequest) {
   const uint16_t ex_size_val{10};
   const uint16_t ex_blk_val{512};
   const uint16_t ex_timeout_val{6};
+  const char zero{'\0'};
   //char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '0', 't', 's', 'i', 'z', 'e', '0', '0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '0', '5', '1', '2', '0', 't', 'i', 'm', 'e', 'o', 'u', 't', '0', '6', '0'};  
   auto t_size = make_pair("tsize", (uint16_t) 10); // Size = 9
   auto blk_size = make_pair("blksize", (uint16_t) 512); // Size = 11
@@ -143,38 +144,53 @@ TEST (OACK, TypicalRequest) {
   string  ex_str_timeout;
   
   vector<ReqParam> param{t_size, blk_size, t_out};
-  OACKPacket pack{33};
+  OACKPacket pack{34};
   pack.makeData(&param);
   
+  //  Operation code (should be 6)
   memcpy(&net_op_code, pack.packet, sizeof(uint16_t));
   uint16_t const op_code{ntohs(net_op_code)};
 
+  //  Source file size (tsize) 
   memcpy(&pack_t_size, &pack.packet[2], sizeof(pack_t_size));
   const string  pack_str_size{pack_t_size, sizeof(pack_t_size)};
+  auto pack_str_zero = pack.packet[7];
   memcpy(&net_val, &pack.packet[8], sizeof(net_val));
   const uint16_t net_size{ntohs(net_val)};
+  auto pack_val_zero = pack.packet[10];
 
-  memcpy(&pack_blk_size, &pack.packet[10], sizeof(pack_blk_size));
+  //  Transfer block size
+  memcpy(&pack_blk_size, &pack.packet[11], sizeof(pack_blk_size));
   const string  pack_str_blk{pack_blk_size, sizeof(pack_blk_size)};
-  memcpy(&net_val, &pack.packet[18], sizeof(net_val));
+  auto blk_str_zero = pack.packet[18];
+  memcpy(&net_val, &pack.packet[19], sizeof(net_val));
   const uint16_t net_blk_size{ntohs(net_val)};
-
-  memcpy(&pack_t_out, &pack.packet[20], sizeof(pack_t_out));
+  auto blk_val_zero = pack.packet[21];
+  
+  //  Transfer timeout 
+  memcpy(&pack_t_out, &pack.packet[22], sizeof(pack_t_out));
   const string  pack_str_timeout{pack_t_out, sizeof(pack_t_out)};
-  memcpy(&net_val, &pack.packet[29], sizeof(net_val));
+  auto t_out_str_zero = pack.packet[29];
+  memcpy(&net_val, &pack.packet[30], sizeof(net_val));
   const uint16_t blk_timeout{ntohs(net_val)};
-
+  auto t_out_val_zero = pack.packet[32];
 
   EXPECT_EQ (op_code, ex_op_code);  
 
   EXPECT_STREQ(pack_str_size.c_str(), str_size.c_str());
-  EXPECT_EQ (net_size, ex_size_val);  
+  EXPECT_EQ (pack_str_zero, zero);
+  EXPECT_EQ (net_size, ex_size_val);
+  EXPECT_EQ (pack_val_zero, zero);
   
   EXPECT_STREQ(pack_str_blk.c_str(), str_blk.c_str());
-  EXPECT_EQ (net_blk_size, ex_blk_val);  
+  EXPECT_EQ (blk_str_zero, zero);
+  EXPECT_EQ (net_blk_size, ex_blk_val);
+  EXPECT_EQ (blk_val_zero, zero);
 
   EXPECT_STREQ(pack_str_timeout.c_str(), str_timeout.c_str());
-  EXPECT_EQ (blk_timeout, ex_timeout_val);  
+  EXPECT_EQ (t_out_str_zero, zero);
+  EXPECT_EQ (blk_timeout, ex_timeout_val);
+  EXPECT_EQ (t_out_val_zero, zero);
 }
 
 

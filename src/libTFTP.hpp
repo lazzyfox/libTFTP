@@ -569,22 +569,31 @@ namespace {
   template <typename T> requires TransType<T>
   struct SendData final : public Packet<T> {
     size_t pos{ 2 };
-    const uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_DATA) };
+    //const uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_DATA) };
+    // const uint16_t op_code{(uint16_t)TFTPOpeCode::TFTP_OPCODE_DATA};
+    uint16_t op_code{3};
     const uint16_t overhead_field_size{ sizeof(op_code) };
 
     SendData(size_t msg_size) : Packet<T>{msg_size + 2 * sizeof(uint16_t)} {
-      memcpy(Packet<T>::packet, &op_code, overhead_field_size);
-      // Packet<T>::packet[0] = '0';
-      // Packet<T>::packet[1] = '3';
+     // memcpy(&Packet<T>::packet[0], &op_code, overhead_field_size);
+       Packet<T>::packet[0] = '\0';
+       Packet<T>::packet[1] = '3';
     }
     bool setData(uint16_t pack_count, ReadFileData<T>* msg) {
       bool ret{ false };
-      const auto net_pack_code{htons(pack_count)};
-      ret = memcpy(Packet<T>::packet + pos, &net_pack_code, overhead_field_size);
-      // Packet<T>::packet[2] = '0';
+      if (msg->size > Packet<T>::packet_size - overhead_field_size) {
+        return ret;
+      }
+      // const auto net_pack_code{htons(pack_count)};
+      // ret = memcpy(Packet<T>::packet + pos, &net_pack_code, overhead_field_size);
+      // Packet<T>::packet[2] = '\0';
       // Packet<T>::packet[3] = pack_count;
+      ret = memcpy(&Packet<T>::packet[pos], &pack_count, overhead_field_size);
+      if (!ret) {
+        return ret;
+      }
       pos += overhead_field_size;
-      ret = memcpy(Packet<T>::packet + pos, msg->data, msg->size); 
+      ret = memcpy(&Packet<T>::packet[pos], msg->data, msg->size); 
       return ret;
     }
     ~SendData() = default;
@@ -661,36 +670,35 @@ namespace {
       memmove(&BasePacket<err_size, char>::packet[4], msg, strlen(msg));
     }
   };
-
+  //  RFC 2347 and above parameters negotiation request support packet
   struct OACKPacket : Packet <char> {
     //  Set size of total packet length - opcode + param ID + divided zero + param value rtc...
     OACKPacket(size_t size) : Packet{ size} {}
-    const uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_OACK) };
+    //const uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_OACK) };
+    const uint16_t op_code{(uint16_t)TFTPOpeCode::TFTP_OPCODE_OACK};
     bool makeData(vector<ReqParam>* val) {
       bool ret{ true };
       uint16_t pos_count{ 2 };
       uint16_t opt_size;
       uint16_t net_val;
-      const char zero_code{'0'};
+      const char zero_code{'\0'};
+      
       clear();
-      // TODO: Uncomment after debug!!!
       memcpy(&packet[0], &op_code, sizeof(op_code));
-      //  TODO: Delete after debuf!!!
-      //packet[0]='1';
-      //packet[1]='2';
-
+      // packet[1] = '6';
+ 
       for (auto& option : *val) {
         opt_size = option.first.size();
         memcpy(&packet[pos_count], option.first.c_str(), opt_size);
-        pos_count += opt_size + 1;
+        pos_count += opt_size;
         memcpy(&packet[pos_count], &zero_code, sizeof(zero_code));
         ++pos_count;
-        net_val = htons(option.second);
-        memcpy(&packet[pos_count], &net_val, sizeof(net_val));
-        ++pos_count;
+        // net_val = htons(option.second);
+        // memcpy(&packet[pos_count], &net_val, sizeof(net_val));
+        memcpy(&packet[pos_count], &option.second, sizeof(option.second));
+        pos_count += 2;
         memcpy(&packet[pos_count], &zero_code, sizeof(zero_code));
         ++pos_count;
-        // pos_count += 2;
       }
       return ret;
     }
