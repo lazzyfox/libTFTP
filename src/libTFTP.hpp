@@ -674,9 +674,10 @@ namespace {
   //  RFC 2347 and above parameters negotiation request support packet
   struct OACKPacket : Packet <char> {
     //  Set size of total packet length - opcode + param ID + divided zero + param value rtc...
-    OACKPacket(size_t size) : Packet{ size} {}
-    const uint16_t op_code{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_OACK) };
-    //const uint16_t op_code{(uint16_t)TFTPOpeCode::TFTP_OPCODE_OACK};
+    OACKPacket(size_t size) : Packet{size} {
+      const uint16_t opcode{ htons((uint16_t)TFTPOpeCode::TFTP_OPCODE_OACK) };
+      memmove(packet, (char*)&opcode, sizeof(opcode));
+    }
     bool makeData(vector<ReqParam>* val) {
       bool ret{ true };
       uint16_t pos_count{ 2 };
@@ -684,10 +685,6 @@ namespace {
       uint16_t net_val;
       const char zero_code{'\000'};
       
-      //clear();
-      memcpy(&packet[0], (char*)&op_code, sizeof(op_code));
-      // packet[1] = '6';
- 
       for (auto& option : *val) {
         opt_size = option.first.size();
         memcpy(&packet[pos_count], option.first.c_str(), opt_size);
@@ -696,7 +693,6 @@ namespace {
         ++pos_count;
         net_val = htons(option.second);
         memcpy(&packet[pos_count], (char*)&net_val, sizeof(net_val));
-        //memcpy(&packet[pos_count], (char*)&option.second, sizeof(option.second));
         pos_count += 2;
         memcpy(&packet[pos_count], &zero_code, sizeof(zero_code));
         ++pos_count;
