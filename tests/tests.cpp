@@ -144,7 +144,7 @@ TEST (OACK, TypicalRequest) {
   string  ex_str_timeout;
   
   vector<ReqParam> param{t_size, blk_size, t_out};
-  OACKPacket pack{34};
+  OACKPacket pack{33};
   pack.makeData(&param);
   
   //  Operation code (should be 6)
