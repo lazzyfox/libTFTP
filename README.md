@@ -1,3 +1,3 @@
 # libTFTP
 Easy, single file TFTP server library (c++)
-[![Build&Test](https://github.com/lazzyfox/libTFTP/tree/main/.github/workflows/cmake.yml/bage.svg)]
+[![CMake](https://github.com/lazzyfox/libTFTP/actions/workflows/cmake.yml/badge.svg)](https://github.com/lazzyfox/libTFTP/actions/workflows/cmake.yml)
