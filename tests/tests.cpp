@@ -61,14 +61,25 @@ TEST(ReadPacket, WriteRq) {
 }
 
 // Data transfer packet
-// TEST (DataPacket, CharData) {
-//   ReadFileData<char> msg{4};
-//   SendData<char> data{4};
-//char req_data[] = {'0', '3', '0', '1', 't', 'e', 's', 't', '\n', '0'};
-//   memcpy (msg.data, &test, sizeof(test));
-//   data.setData(1, &msg);
-//   // for ()
-// }
+TEST (DataPacket, CharData) {
+  const uint16_t ex_opcode{htons(3)};
+  const uint16_t ex_pack_number{htons(1)};
+  uint16_t opcode, pack_number;
+  const string_view test_msg{"test12"};
+  const string ex_data_str{test_msg};
+  ReadFileData<char> msg{6};
+  msg.setData(test_msg);
+  SendData<char> data{6};
+  data.setData(1, &msg);
+
+  memcpy(&opcode, data.packet, sizeof(uint16_t));
+  memcpy(&pack_number, &data.packet[2], sizeof(uint16_t));
+  string pack_msg {&data.packet[4], 6};
+
+  EXPECT_EQ (opcode, ex_opcode);
+  EXPECT_EQ (pack_number, ex_pack_number);
+  EXPECT_STREQ(pack_msg.c_str(), ex_data_str.c_str());
+}
 
 // RFC 783-1350 ACK packet
 TEST (ACKPacket, MinVal) {
@@ -129,7 +140,6 @@ TEST (OACK, TypicalRequest) {
   const uint16_t ex_blk_val{512};
   const uint16_t ex_timeout_val{6};
   const char zero{'\0'};
-  //char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '0', 't', 's', 'i', 'z', 'e', '0', '0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '0', '5', '1', '2', '0', 't', 'i', 'm', 'e', 'o', 'u', 't', '0', '6', '0'};  
   auto t_size = make_pair("tsize", (uint16_t) 10); // Size = 9
   auto blk_size = make_pair("blksize", (uint16_t) 512); // Size = 11
   auto t_out = make_pair("timeout", (uint16_t) 6); // Size = 11
@@ -139,13 +149,16 @@ TEST (OACK, TypicalRequest) {
   const string  str_size{"tsize"};
   const string  str_blk{"blksize"};
   const string  str_timeout{"timeout"};
-  
+  const string ex_str_size_val{std::to_string(10)};
+  const string ex_str_blk_val{std::to_string(512)};
+  const string ex_str_tout_val{std::to_string(6)};
+
+
   string  ex_str_blk;
   string  ex_str_timeout;
   
   vector<ReqParam> param{t_size, blk_size, t_out};
-  OACKPacket pack{33};
-  pack.makeData(&param);
+  OACKPacket pack{&param};
   
   //  Operation code (should be 6)
   memcpy(&net_op_code, pack.packet, sizeof(uint16_t));
@@ -155,41 +168,38 @@ TEST (OACK, TypicalRequest) {
   memcpy(&pack_t_size, &pack.packet[2], sizeof(pack_t_size));
   const string  pack_str_size{pack_t_size, sizeof(pack_t_size)};
   auto pack_str_zero = pack.packet[7];
-  memcpy(&net_val, &pack.packet[8], sizeof(net_val));
-  const uint16_t net_size{ntohs(net_val)};
+  const string str_size_val{&pack.packet[8], 2};
   auto pack_val_zero = pack.packet[10];
 
   //  Transfer block size
   memcpy(&pack_blk_size, &pack.packet[11], sizeof(pack_blk_size));
   const string  pack_str_blk{pack_blk_size, sizeof(pack_blk_size)};
   auto blk_str_zero = pack.packet[18];
-  memcpy(&net_val, &pack.packet[19], sizeof(net_val));
-  const uint16_t net_blk_size{ntohs(net_val)};
-  auto blk_val_zero = pack.packet[21];
+  const string str_blk_val{&pack.packet[19], 3};
+  auto blk_val_zero = pack.packet[22];
   
   //  Transfer timeout 
-  memcpy(&pack_t_out, &pack.packet[22], sizeof(pack_t_out));
+  memcpy(&pack_t_out, &pack.packet[23], sizeof(pack_t_out));
   const string  pack_str_timeout{pack_t_out, sizeof(pack_t_out)};
-  auto t_out_str_zero = pack.packet[29];
-  memcpy(&net_val, &pack.packet[30], sizeof(net_val));
-  const uint16_t blk_timeout{ntohs(net_val)};
+  auto t_out_str_zero = pack.packet[30];
+  const string str_tout_val{&pack.packet[31], 1};
   auto t_out_val_zero = pack.packet[32];
 
   EXPECT_EQ (op_code, ex_op_code);  
 
   EXPECT_STREQ(pack_str_size.c_str(), str_size.c_str());
   EXPECT_EQ (pack_str_zero, zero);
-  EXPECT_EQ (net_size, ex_size_val);
+  EXPECT_STREQ (str_size_val.c_str(), ex_str_size_val.c_str());
   EXPECT_EQ (pack_val_zero, zero);
   
   EXPECT_STREQ(pack_str_blk.c_str(), str_blk.c_str());
   EXPECT_EQ (blk_str_zero, zero);
-  EXPECT_EQ (net_blk_size, ex_blk_val);
+  EXPECT_STREQ (str_blk_val.c_str(), ex_str_blk_val.c_str());
   EXPECT_EQ (blk_val_zero, zero);
 
   EXPECT_STREQ(pack_str_timeout.c_str(), str_timeout.c_str());
   EXPECT_EQ (t_out_str_zero, zero);
-  EXPECT_EQ (blk_timeout, ex_timeout_val);
+  EXPECT_STREQ (str_tout_val.c_str(), ex_str_tout_val.c_str());
   EXPECT_EQ (t_out_val_zero, zero);
 }
 
