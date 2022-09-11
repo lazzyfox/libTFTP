@@ -29,35 +29,96 @@ TEST(Packet, CharData) {
 }
 
 // Client request packet test
-// TEST(ReadPacket, ReadRq) {
-//   ReadPacket data;
-//  char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '0', 't', 's', 'i', 'z', 'e', '0', '0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '0', '5', '1', '2', '0', 't', 'i', 'm', 'e', 'o', 'u', 't', '0', '6', '0'};
-//   memcpy (data.packet, &test, sizeof(test));, 
-//   // for (auto count = 0; count < 4; ++ count) {
-//   //   EXPECT_EQ (test[count], data.packet[count]);
-//   // }
-// }
-
-TEST(ReadPacket, WriteRq) {
+TEST(ReadPacket, ReadRq_Negotiation) {
   ReadPacket data;
-  char req_data[] = {'0', '2', 'a', 'k', '.', 't', 'x', 't', '0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '0', 't', 's', 'i', 'z', 'e', '0', '5', 'b', 'l', 'k', 's', 'i', 'z', 'e', '0', '5', '1', '2', '0', 't', 'i', 'm', 'e', 'o', 'u', 't', '0', '6', '0'};
-  uint16_t net_code{htons(2)};
+  char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '\0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  const string ex_file_name{"ak.txt"};
+  uint16_t net_code{htons(1)};
+  const string ex_tsize_str{"tsize"};
+  const string ex_blksize_str{"blksize"};
+  const string ex_timeout_str{"timeout"};
   memcpy (req_data, &net_code, sizeof(net_code));
   memcpy (data.packet, &req_data, sizeof(req_data));
-  data.makeFrameStruct(sizeof(req_data));
-  const uint16_t ex_op_code{2};
-  uint16_t op_code;
-  auto data_frame{std::get<0>(data.packet_frame_structure)};
-  switch (data_frame) {
-    case TFTPOpeCode::TFTP_OPCODE_READ : op_code = 1; break;
-    case TFTPOpeCode::TFTP_OPCODE_WRITE: op_code = 2; break;
-    case TFTPOpeCode::TFTP_OPCODE_DATA : op_code = 3; break;
-    case TFTPOpeCode::TFTP_OPCODE_ACK : op_code = 4; break;
-    case TFTPOpeCode::TFTP_OPCODE_ERROR : op_code = 5; break;
-    case TFTPOpeCode::TFTP_OPCODE_OACK : op_code = 6; break;
-    default :;
-  }
-  EXPECT_EQ (op_code, ex_op_code);  
+  auto make_struct = data.makeFrameStruct(sizeof(req_data));
+  
+  auto op_code{std::get<0>(data.packet_frame_structure)};
+  auto error_code{std::get<1>(data.packet_frame_structure)};
+  auto transfer_mode{std::get<2>(data.packet_frame_structure)};
+  auto block_number{std::get<3>(data.packet_frame_structure)};
+  auto block_begin{std::get<4>(data.packet_frame_structure)};
+  auto block_end{std::get<5>(data.packet_frame_structure)};
+  auto file_name{std::get<6>(data.packet_frame_structure)};
+
+  auto add_param_vec{data.req_params.value()};
+  auto vec_tsize {add_param_vec.at(0)}; 
+  auto vec_blksize{add_param_vec.at(1)};
+  auto vec_timeout{add_param_vec.at(2)};
+
+  EXPECT_TRUE (make_struct);
+  EXPECT_TRUE (data.req_params);
+  EXPECT_EQ (data.req_params.value().size(), 3);
+  EXPECT_EQ (op_code, TFTPOpeCode::TFTP_OPCODE_WRITE);
+  EXPECT_FALSE (error_code);
+  EXPECT_EQ (transfer_mode, TFTPMode::netascii);
+  EXPECT_FALSE (block_number);
+  EXPECT_EQ (block_begin, 2);
+  EXPECT_EQ (block_end, 8);
+  EXPECT_STREQ (file_name.value().c_str(), ex_file_name.c_str());
+
+  EXPECT_STREQ (vec_tsize.first.c_str(), ex_tsize_str.c_str());
+  EXPECT_EQ (vec_tsize.second, 0);
+
+  EXPECT_STREQ (vec_blksize.first.c_str(), ex_blksize_str.c_str());
+  EXPECT_EQ (vec_blksize.second, 512);
+
+  EXPECT_STREQ (vec_timeout.first.c_str(), ex_timeout_str.c_str());
+  EXPECT_EQ (vec_timeout.second, 6);
+}
+
+TEST(ReadPacket, WriteRq_Negotiation) {
+  ReadPacket data;
+  char req_data[] = {'0', '2', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '5', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  const string ex_file_name{"ak.txt"};
+  uint16_t net_code{htons(2)};
+  const string ex_tsize_str{"tsize"};
+  const string ex_blksize_str{"blksize"};
+  const string ex_timeout_str{"timeout"};
+  memcpy (req_data, &net_code, sizeof(net_code));
+  memcpy (data.packet, &req_data, sizeof(req_data));
+  auto make_struct = data.makeFrameStruct(sizeof(req_data));
+  
+  auto op_code{std::get<0>(data.packet_frame_structure)};
+  auto error_code{std::get<1>(data.packet_frame_structure)};
+  auto transfer_mode{std::get<2>(data.packet_frame_structure)};
+  auto block_number{std::get<3>(data.packet_frame_structure)};
+  auto block_begin{std::get<4>(data.packet_frame_structure)};
+  auto block_end{std::get<5>(data.packet_frame_structure)};
+  auto file_name{std::get<6>(data.packet_frame_structure)};
+
+  auto add_param_vec{data.req_params.value()};
+  auto vec_tsize {add_param_vec.at(0)}; 
+  auto vec_blksize{add_param_vec.at(1)};
+  auto vec_timeout{add_param_vec.at(2)};
+
+  EXPECT_TRUE (make_struct);
+  EXPECT_TRUE (data.req_params);
+  EXPECT_EQ (data.req_params.value().size(), 3);
+  EXPECT_EQ (op_code, TFTPOpeCode::TFTP_OPCODE_WRITE);
+  EXPECT_FALSE (error_code);
+  EXPECT_EQ (transfer_mode, TFTPMode::netascii);
+  EXPECT_FALSE (block_number);
+  EXPECT_EQ (block_begin, 2);
+  EXPECT_EQ (block_end, 8);
+  EXPECT_STREQ (file_name.value().c_str(), ex_file_name.c_str());
+
+  EXPECT_STREQ (vec_tsize.first.c_str(), ex_tsize_str.c_str());
+  EXPECT_EQ (vec_tsize.second, 5);
+
+  EXPECT_STREQ (vec_blksize.first.c_str(), ex_blksize_str.c_str());
+  EXPECT_EQ (vec_blksize.second, 512);
+
+  EXPECT_STREQ (vec_timeout.first.c_str(), ex_timeout_str.c_str());
+  EXPECT_EQ (vec_timeout.second, 6);
 }
 
 // Data transfer packet

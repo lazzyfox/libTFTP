@@ -252,30 +252,9 @@ namespace {
         data[dat_counter] = str_counter;
         ++dat_counter;
       }
-    }
-  };
-
-  //  Data transfer types
-  //  Oldfashinal TFTP data packet of 512B data block size
-  //  TODO: Should be removed later
-  template <typename T> requires TransType<T>
-  struct DefaultDataPack {
-    struct Data {
-      uint16_t op_code;
-      uint16_t packet_number;
-      T str[PACKET_DATA_SIZE];
-    } data;
-    DefaultDataPack() { data.op_code = htons((uint8_t)TFTPOpeCode::TFTP_OPCODE_DATA); }
-    bool setData(uint16_t number, ReadFileData<T>* data_in) noexcept {
-      bool ret{ false };
-      if (number > std::numeric_limits<uint16_t>::max()) {
-        return ret;
+      if (dat_counter == size) {
+        ret = true;
       }
-      data.packet_number = htons(number);
-      if (data_in->size > PACKET_DATA_SIZE) {
-        return ret;
-      }
-      ret = memcopy(data.str, data_in->data, data_in->size);
       return ret;
     }
   };
@@ -395,6 +374,7 @@ namespace {
       memmove(&data_frame[DATA_PACKET_FIELD], data_in->data, sizeof(T) * data_in->size);
     }
   };
+  //TODO: Check lambda for htons/ntohs usage
   //  Connection (transfer) request from client 
   struct ReadPacket final : BasePacket <PACKET_MAX_SIZE, char> {
     tuple<TFTPOpeCode, //  Operation Code
@@ -410,7 +390,16 @@ namespace {
     //  Sorting data and creating data map
     bool makeFrameStruct(size_t pack_size) {
       bool ret{ false };
+      uint16_t opcode;
       unsigned char hi, lo;
+
+      //  Network operation code format to host form
+      auto netToHost = [](char* str_code) {
+        uint16_t net_code, op_code;
+        memcpy(&net_code, str_code, 2);
+        op_code = ntohs(net_code);
+        return op_code;
+      };
 
       auto reqRW = [this, pack_size](int opcode) ->bool {
         bool ret{ true };
@@ -554,13 +543,8 @@ namespace {
         return ret;
       };
 
-
       const unordered_map<int, function<bool(int)>> req_data{ {1, reqRW}, {2, reqRW}, {3, getData}, {4, getACK}, {5, getERROR} };
-      hi = packet[0];
-      lo = packet[1];
-      auto opcode{ (hi << 8) | lo };
-
-      //  Check packet consistence
+      opcode = netToHost(packet);
       switch (opcode) {
       case (int)TFTPOpeCode::TFTP_OPCODE_READ: ret = (pack_size < READ_MIN_SIZE) ? false : true; break;
       case (int)TFTPOpeCode::TFTP_OPCODE_WRITE: ret = (pack_size < WRITE_MIN_SIZE) ? false : true; break;
@@ -604,7 +588,8 @@ namespace {
     }
     ~SendData() = default;
   };
-
+  //  TODO: Check data analysis process - PacketTools!!!
+  //  Receive & analyze clients packet
   template <typename T> requires TransType<T>
   struct DataPacket final : Packet<T>, PacketTools<T> {
     DataPacket(size_t size) : Packet<T>{ size * 2 * sizeof(uint16_t) }, PacketTools<T>{} {}
