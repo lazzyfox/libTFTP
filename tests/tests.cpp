@@ -29,9 +29,9 @@ TEST(Packet, CharData) {
 }
 
 // Client request packet test
-TEST(ReadPacket, ReadRq_Negotiation) {
+TEST(ReadPacket, ReadRq_Oldfashioned) {
   ReadPacket data;
-  char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  char req_data[] {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0'};
   const string ex_file_name{"ak.txt"};
   uint16_t net_code{htons(1)};
   const string ex_tsize_str{"tsize"};
@@ -39,9 +39,73 @@ TEST(ReadPacket, ReadRq_Negotiation) {
   const string ex_timeout_str{"timeout"};
   memcpy (req_data, &net_code, sizeof(net_code));
   memcpy (data.packet, &req_data, sizeof(req_data));
-  auto make_struct = data.makeFrameStruct(sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
   
-  auto op_code = (uint16_t)std::get<0>(data.packet_frame_structure);
+  auto op_code {(uint16_t)std::get<0>(data.packet_frame_structure)};
+  auto error_code{std::get<1>(data.packet_frame_structure)};
+  auto transfer_mode{std::get<2>(data.packet_frame_structure).value()};
+  auto block_number{std::get<3>(data.packet_frame_structure)};
+  auto block_begin{std::get<4>(data.packet_frame_structure).value()};
+  auto block_end{std::get<5>(data.packet_frame_structure).value()};
+  auto file_name{std::get<6>(data.packet_frame_structure)};
+
+  
+  EXPECT_TRUE (make_struct);
+  EXPECT_FALSE (data.req_params);
+  EXPECT_EQ (op_code, (uint16_t)TFTPOpeCode::TFTP_OPCODE_READ);
+  EXPECT_FALSE (error_code);
+  EXPECT_EQ (transfer_mode, TFTPMode::netascii);
+  EXPECT_FALSE (block_number);
+  EXPECT_EQ (block_begin, 2);
+  EXPECT_EQ (block_end, 8);
+  EXPECT_STREQ (file_name.value().c_str(), ex_file_name.c_str());
+}
+
+
+TEST(ReadPacket, WriteRq_Oldfashioned) {
+  ReadPacket data;
+  char req_data[] {'0', '2', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0'};
+  uint16_t net_code{htons(2)};
+  const string ex_file_name{"ak.txt"};
+  const string ex_tsize_str{"tsize"};
+  const string ex_blksize_str{"blksize"};
+  const string ex_timeout_str{"timeout"};
+  memcpy (req_data, &net_code, sizeof(net_code));
+  memcpy (data.packet, &req_data, sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
+  
+  auto op_code {(uint16_t)std::get<0>(data.packet_frame_structure)};
+  auto error_code{std::get<1>(data.packet_frame_structure)};
+  auto transfer_mode{std::get<2>(data.packet_frame_structure).value()};
+  auto block_number{std::get<3>(data.packet_frame_structure)};
+  auto block_begin{std::get<4>(data.packet_frame_structure).value()};
+  auto block_end{std::get<5>(data.packet_frame_structure).value()};
+  auto file_name{std::get<6>(data.packet_frame_structure)};
+
+  EXPECT_TRUE (make_struct);
+  EXPECT_FALSE (data.req_params);
+  EXPECT_EQ (op_code, (uint16_t)TFTPOpeCode::TFTP_OPCODE_WRITE);
+  EXPECT_FALSE (error_code);
+  EXPECT_EQ (transfer_mode, TFTPMode::netascii);
+  EXPECT_FALSE (block_number);
+  EXPECT_EQ (block_begin, 2);
+  EXPECT_EQ (block_end, 8);
+  EXPECT_STREQ (file_name.value().c_str(), ex_file_name.c_str());
+}
+
+TEST(ReadPacket, ReadRq_Negotiation) {
+  ReadPacket data;
+  char req_data[] {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  const string ex_file_name{"ak.txt"};
+  uint16_t net_code{htons(1)};
+  const string ex_tsize_str{"tsize"};
+  const string ex_blksize_str{"blksize"};
+  const string ex_timeout_str{"timeout"};
+  memcpy (req_data, &net_code, sizeof(net_code));
+  memcpy (data.packet, &req_data, sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
+  
+  auto op_code {(uint16_t)std::get<0>(data.packet_frame_structure)};
   auto error_code{std::get<1>(data.packet_frame_structure)};
   auto transfer_mode{std::get<2>(data.packet_frame_structure).value()};
   auto block_number{std::get<3>(data.packet_frame_structure)};
@@ -77,7 +141,7 @@ TEST(ReadPacket, ReadRq_Negotiation) {
 
 TEST(ReadPacket, WriteRq_Negotiation) {
   ReadPacket data;
-  char req_data[] = {'0', '2', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '5', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  char req_data[] {'0', '2', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '5', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
   uint16_t net_code{htons(2)};
   const string ex_file_name{"ak.txt"};
   const string ex_tsize_str{"tsize"};
@@ -85,9 +149,9 @@ TEST(ReadPacket, WriteRq_Negotiation) {
   const string ex_timeout_str{"timeout"};
   memcpy (req_data, &net_code, sizeof(net_code));
   memcpy (data.packet, &req_data, sizeof(req_data));
-  auto make_struct = data.makeFrameStruct(sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
   
-  auto op_code = (uint16_t)std::get<0>(data.packet_frame_structure);
+  auto op_code {(uint16_t)std::get<0>(data.packet_frame_structure)};
   auto error_code{std::get<1>(data.packet_frame_structure)};
   auto transfer_mode{std::get<2>(data.packet_frame_structure).value()};
   auto block_number{std::get<3>(data.packet_frame_structure)};
@@ -120,6 +184,44 @@ TEST(ReadPacket, WriteRq_Negotiation) {
   EXPECT_STREQ (vec_timeout.first.c_str(), ex_timeout_str.c_str());
   EXPECT_EQ (vec_timeout.second, 6);
 }
+
+TEST(ReadPacket, ReadRq_Oldfashioned_WrongFN) {
+  ReadPacket data;
+  char req_data[] {'0', '1', 'a', '\0', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0'};
+  uint16_t net_code{htons(1)};
+  memcpy (req_data, &net_code, sizeof(net_code));
+  memcpy (data.packet, &req_data, sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
+  
+  EXPECT_FALSE (make_struct);
+}
+
+TEST(ReadPacket, ReadRq_Negotiation_WrongTSizeVal) {
+  ReadPacket data;
+  char req_data[] {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '\0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  uint16_t net_code{htons(1)};
+  memcpy (req_data, &net_code, sizeof(net_code));
+  memcpy (data.packet, &req_data, sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
+  
+  EXPECT_FALSE (make_struct);
+}
+
+TEST(ReadPacket, WriteRq_Negotiation_WrongTSizeVal) {
+  ReadPacket data;
+  char req_data[] {'0', '2', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '\0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  const string ex_file_name{"ak.txt"};
+  uint16_t net_code{htons(2)};
+  const string ex_tsize_str{"tsize"};
+  const string ex_blksize_str{"blksize"};
+  const string ex_timeout_str{"timeout"};
+  memcpy (req_data, &net_code, sizeof(net_code));
+  memcpy (data.packet, &req_data, sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
+  
+  EXPECT_FALSE (make_struct);
+}
+
 
 // Data transfer packet
 TEST (DataPacket, CharData) {

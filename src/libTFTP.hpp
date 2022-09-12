@@ -391,7 +391,6 @@ namespace {
     bool makeFrameStruct(size_t pack_size) {
       bool ret{ false };
       uint16_t opcode;
-      unsigned char hi, lo;
 
       //  Network operation code format to host form
       auto netToHost = [](char* str_code) {
@@ -469,6 +468,9 @@ namespace {
             buffer += packet[++count_mode];
           } while (packet[count_mode] != '\0');
 
+          if (buffer[0] == '\0') {
+            return false;
+          }
           count_begin = stoi(buffer);
           options.emplace_back(std::make_pair(transf_mode, count_begin));
           ++count_mode;
