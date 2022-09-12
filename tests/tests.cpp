@@ -31,7 +31,7 @@ TEST(Packet, CharData) {
 // Client request packet test
 TEST(ReadPacket, ReadRq_Negotiation) {
   ReadPacket data;
-  char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '\0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  char req_data[] = {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
   const string ex_file_name{"ak.txt"};
   uint16_t net_code{htons(1)};
   const string ex_tsize_str{"tsize"};
@@ -41,12 +41,12 @@ TEST(ReadPacket, ReadRq_Negotiation) {
   memcpy (data.packet, &req_data, sizeof(req_data));
   auto make_struct = data.makeFrameStruct(sizeof(req_data));
   
-  auto op_code{std::get<0>(data.packet_frame_structure)};
+  auto op_code = (uint16_t)std::get<0>(data.packet_frame_structure);
   auto error_code{std::get<1>(data.packet_frame_structure)};
-  auto transfer_mode{std::get<2>(data.packet_frame_structure)};
+  auto transfer_mode{std::get<2>(data.packet_frame_structure).value()};
   auto block_number{std::get<3>(data.packet_frame_structure)};
-  auto block_begin{std::get<4>(data.packet_frame_structure)};
-  auto block_end{std::get<5>(data.packet_frame_structure)};
+  auto block_begin{std::get<4>(data.packet_frame_structure).value()};
+  auto block_end{std::get<5>(data.packet_frame_structure).value()};
   auto file_name{std::get<6>(data.packet_frame_structure)};
 
   auto add_param_vec{data.req_params.value()};
@@ -57,7 +57,7 @@ TEST(ReadPacket, ReadRq_Negotiation) {
   EXPECT_TRUE (make_struct);
   EXPECT_TRUE (data.req_params);
   EXPECT_EQ (data.req_params.value().size(), 3);
-  EXPECT_EQ (op_code, TFTPOpeCode::TFTP_OPCODE_WRITE);
+  EXPECT_EQ (op_code, (uint16_t)TFTPOpeCode::TFTP_OPCODE_READ);
   EXPECT_FALSE (error_code);
   EXPECT_EQ (transfer_mode, TFTPMode::netascii);
   EXPECT_FALSE (block_number);
@@ -78,8 +78,8 @@ TEST(ReadPacket, ReadRq_Negotiation) {
 TEST(ReadPacket, WriteRq_Negotiation) {
   ReadPacket data;
   char req_data[] = {'0', '2', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '5', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
-  const string ex_file_name{"ak.txt"};
   uint16_t net_code{htons(2)};
+  const string ex_file_name{"ak.txt"};
   const string ex_tsize_str{"tsize"};
   const string ex_blksize_str{"blksize"};
   const string ex_timeout_str{"timeout"};
@@ -87,12 +87,12 @@ TEST(ReadPacket, WriteRq_Negotiation) {
   memcpy (data.packet, &req_data, sizeof(req_data));
   auto make_struct = data.makeFrameStruct(sizeof(req_data));
   
-  auto op_code{std::get<0>(data.packet_frame_structure)};
+  auto op_code = (uint16_t)std::get<0>(data.packet_frame_structure);
   auto error_code{std::get<1>(data.packet_frame_structure)};
-  auto transfer_mode{std::get<2>(data.packet_frame_structure)};
+  auto transfer_mode{std::get<2>(data.packet_frame_structure).value()};
   auto block_number{std::get<3>(data.packet_frame_structure)};
-  auto block_begin{std::get<4>(data.packet_frame_structure)};
-  auto block_end{std::get<5>(data.packet_frame_structure)};
+  auto block_begin{std::get<4>(data.packet_frame_structure).value()};
+  auto block_end{std::get<5>(data.packet_frame_structure).value()};
   auto file_name{std::get<6>(data.packet_frame_structure)};
 
   auto add_param_vec{data.req_params.value()};
@@ -103,7 +103,7 @@ TEST(ReadPacket, WriteRq_Negotiation) {
   EXPECT_TRUE (make_struct);
   EXPECT_TRUE (data.req_params);
   EXPECT_EQ (data.req_params.value().size(), 3);
-  EXPECT_EQ (op_code, TFTPOpeCode::TFTP_OPCODE_WRITE);
+  EXPECT_EQ (op_code, (uint16_t)TFTPOpeCode::TFTP_OPCODE_WRITE);
   EXPECT_FALSE (error_code);
   EXPECT_EQ (transfer_mode, TFTPMode::netascii);
   EXPECT_FALSE (block_number);
