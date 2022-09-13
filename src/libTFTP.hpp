@@ -374,7 +374,6 @@ namespace {
       memmove(&data_frame[DATA_PACKET_FIELD], data_in->data, sizeof(T) * data_in->size);
     }
   };
-  //TODO: Check lambda for htons/ntohs usage
   //  Connection (transfer) request from client 
   struct ReadPacket final : BasePacket <PACKET_MAX_SIZE, char> {
     tuple<TFTPOpeCode, //  Operation Code
