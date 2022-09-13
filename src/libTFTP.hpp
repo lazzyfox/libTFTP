@@ -394,10 +394,10 @@ namespace {
 
       //  Network operation code format to host form
       auto netToHost = [](char* str_code) {
-        uint16_t net_code, op_code;
+        uint16_t net_code, host_code;
         memcpy(&net_code, str_code, 2);
-        op_code = ntohs(net_code);
-        return op_code;
+        host_code = ntohs(net_code);
+        return host_code;
       };
 
       auto reqRW = [this, pack_size](int opcode) ->bool {
@@ -484,37 +484,35 @@ namespace {
 
       auto getData = [this, pack_size](int opcode) ->bool {
         bool ret{ true };
-        unsigned char hi, lo;
+        char blk_num[2];
 
         if (pack_size < DATA_MIN_SIZE) {
           return false;
         }
 
         //Block number
-        hi = packet[2];
-        lo = packet[3];
-        auto block_number{ (hi << 8) | lo };
+        memcpy(blk_num, &packet[2], sizeof(uint16_t));
+        uint16_t block_number{std::stoi(blk_num)};
         std::get<0>(packet_frame_structure) = OptCode.at(opcode);
         std::get<1>(packet_frame_structure) = optional<TFTPError>{};
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
         std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
         std::get<4>(packet_frame_structure) = optional<uint16_t>(5);
-        std::get<5>(packet_frame_structure) = optional<uint16_t>(sizeof(packet) - 5);
+        std::get<5>(packet_frame_structure) = optional<uint16_t>(pack_size - 1);
         return ret;
       };
 
       auto getACK = [this, pack_size](int opcode) -> bool {
         bool ret{ true };
-        unsigned char hi, lo;
+        char blk_num[2];
 
         if (pack_size < ACK_MIN_SIZE) {
           return false;
         }
 
         //Block number
-        hi = packet[2];
-        lo = packet[3];
-        auto block_number{ (hi << 8) | lo };
+        memcpy(blk_num, &packet[2], sizeof(uint16_t));
+        uint16_t block_number{std::stoi(blk_num)};
         std::get<0>(packet_frame_structure) = OptCode.at(opcode);
         std::get<1>(packet_frame_structure) = optional<TFTPError>{};
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -526,22 +524,21 @@ namespace {
 
       auto getERROR = [this, pack_size](int opcode) ->bool {
         bool ret{ true };
-        unsigned char hi, lo;
+        char blk_num[2];
 
         if (pack_size < ERROR_MIN_SIZE) {
           return false;
         }
 
         //Error number
-        hi = packet[2];
-        lo = packet[3];
-        auto error_code{ (hi << 8) | lo };
+        memcpy(blk_num, &packet[2], sizeof(uint16_t));
+        uint16_t error_code{std::stoi(blk_num)};
         std::get<0>(packet_frame_structure) = OptCode.at(opcode);
         std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
         std::get<3>(packet_frame_structure) = optional<uint16_t>{};
         std::get<4>(packet_frame_structure) = optional<uint16_t>{ 5 };
-        std::get<5>(packet_frame_structure) = optional<uint16_t>{ sizeof(packet) - 5 };
+        std::get<5>(packet_frame_structure) = optional<uint16_t>{ pack_size - 2 };
         return ret;
       };
 
@@ -559,8 +556,12 @@ namespace {
       if (!ret) {
         return ret;
       }
-      auto dataLayOut{ req_data.at(opcode) };
-      ret = dataLayOut(opcode);
+      try {
+        auto dataLayOut{ req_data.at(opcode) };
+        ret = dataLayOut(opcode);
+      } catch (...) {
+        ret = false;
+      }
       return ret;
     }
   };
@@ -981,10 +982,7 @@ namespace {
     const size_t buff_size{ 512 };
     const size_t timeout{ 3 };
     const size_t file_size{ 0 };
-    struct sockaddr_storage cliaddr;  //  Client connection address //  TODO Remove after debug
-    socklen_t  cli_addr_size{ sizeof(cliaddr) };  //  TODO Remove after debug
-    int sock_id{ 0 };  //  TODO Remove after debug
-
+    
     BaseNet(size_t port) : port{ port } {
       if (!init(port)) {
         std::cerr << "Socket init problem" << std::endl;
@@ -1119,11 +1117,13 @@ namespace {
   protected:
     //  Socket params
     const size_t port;
-    //int sock_id{0}; //TODO: remove comments after debug
-    struct sockaddr_in address, servaddr;
-    int opt = 1;
-    int addrlen = sizeof(address);
-    //      socklen_t  cli_addr_size;  //TODO: remove comments after debug
+    int sock_id{0}; 
+    struct sockaddr_in address;
+    int opt {1};
+    struct sockaddr_storage cliaddr;  //  Client connection address 
+    //socklen_t  cli_addr_size{ sizeof(cliaddr)};
+    int addrlen {sizeof(address)};
+    socklen_t  cli_addr_size;
 
     string getERRNO(void) {
       string err_str;
