@@ -166,7 +166,9 @@ namespace {
   constexpr char TSIZE_OPT_NAME[]{ "tsize" };
   constexpr char TIMEOUT_OPT_NAME[]{ "timeout" };
   constexpr char BLKSIZE_OPT_NAME[]{ "blksize" };
-  enum class OptExtent : uint8_t { tsize, timeout, blksize };
+  constexpr char MULTICAST_OPT_NAME[]{ "multicast" };
+
+  enum class OptExtent : uint8_t { tsize, timeout, blksize, multicast };
 
   template <typename T> concept TransType = std::same_as <T, byte> || std::same_as <T, char>;
 
@@ -207,7 +209,14 @@ namespace {
   constexpr string_view hello{ "Hello from TFTP server V 0.1" };
 
   using PacketContent = tuple<TFTPOpeCode, optional<TFTPError>, optional<string_view>, optional<TFTPMode>, optional<uint16_t>>;
-  using ReqParam = pair<string, uint16_t>;
+  using ReqParam = pair<OptExtent, uint16_t>;
+  //  RFC2090 - multicast option parameters
+  using MulticastOption = tuple<string, uint16_t, bool>;
+  using OACKOption = tuple<optional<ReqParam>,  //  tsize
+                           optional<ReqParam>,  //  blksize
+                           optional<ReqParam>,  //  timeout
+                           optional<MulticastOption>  //  Multicast parameters set
+                           >;
 
   const unordered_map<int, TFTPOpeCode> OptCode{ {1, TFTPOpeCode::TFTP_OPCODE_READ},
                                                  {2, TFTPOpeCode::TFTP_OPCODE_WRITE},
@@ -229,7 +238,15 @@ namespace {
                                                      {6, TFTPError::File_exists},
                                                      {7, TFTPError::No_such_user},
                                                      {8, TFTPError::Optins_are_not_supported} };
-
+  const unordered_map<string, OptExtent> OptExtGet{ {"tsize", OptExtent::tsize},
+                                                    {"timeout", OptExtent::timeout},
+                                                    {"blksize", OptExtent::blksize},
+                                                    {"multicast", OptExtent::multicast} };
+  const unordered_map<OptExtent, string> OptExtVal{ {OptExtent::tsize, "tsize"},
+                                                    {OptExtent::timeout, "timeout"},
+                                                    {OptExtent::blksize, "blksize"},
+                                                    {OptExtent::multicast, "multicast"} };
+  
 
   //  Read data from file to send as a packet to client
   template <typename T> requires TransType<T>
@@ -385,7 +402,7 @@ namespace {
       optional<string> //  File name
     > packet_frame_structure;
     optional<vector<ReqParam>> req_params;
-
+    optional<MulticastOption> multicast;
     //  Sorting data and creating data map
     bool makeFrameStruct(size_t pack_size) {
       bool ret{ false };
@@ -470,8 +487,27 @@ namespace {
           if (buffer[0] == '\0') {
             return false;
           }
+          auto option_name{OptExtGet.at(string(transf_mode))};
+          //  Set RFC-2090 in case of multicast request
+          if (option_name == OptExtent::multicast) {
+            const string delim{","};
+            string val_array{buffer};
+            size_t pos{0};
+            vector<string> multicast_val;
+            val_array.erase(remove_if(val_array.begin(), val_array.end(), isspace), val_array.end());
+            transform(val_array.begin(), val_array.end(), val_array.begin(), ::tolower);
+
+            while ((pos = val_array.find(delim)) != string::npos) {
+              multicast_val.push_back(val_array.substr(0, pos));
+              val_array.erase(0, pos + delim.length());
+            }
+            
+            multicast = make_tuple(multicast_val.at(0), (uint16_t) stoi(multicast_val.at(1)), (bool)stoi(multicast_val.at(2)));
+            ++count_mode;  
+            continue;
+          }
           count_begin = stoi(buffer);
-          options.emplace_back(std::make_pair(transf_mode, count_begin));
+          options.emplace_back(std::make_pair(option_name, count_begin));
           ++count_mode;
         }
 
@@ -665,22 +701,57 @@ namespace {
   //  RFC 2347 and above parameters negotiation request support packet
   struct OACKPacket : Packet <char> {
     //  Set size of total packet length - opcode + param ID + divided zero + param value etc...
-    OACKPacket(vector<ReqParam>* val) : Packet{} {
+    OACKPacket(OACKOption* val) : Packet{} {
       const uint16_t opcode {htons(6)};
       char draft_packet[PACKET_MAX_SIZE];
       uint16_t pos{0};
       string str_val;
-      for (auto& option : *val) {
-        memcpy(draft_packet + pos, option.first.c_str(), option.first.size());
-        pos += option.first.size();
+      
+      //  Converting parameters into packet sting format values 
+      auto makeParam = [&draft_packet, &pos, &str_val] (ReqParam *opt) {
+        str_val = OptExtVal.at(opt->first);
+        memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
+        pos = str_val.size() + 1;
         draft_packet[pos] = '\0';
         ++pos;
-        str_val = std::to_string(option.second);
-        memcpy(draft_packet + pos, str_val.c_str(), str_val.size());
-        pos += str_val.size() ;
+        str_val = std::to_string(opt->second);
+        memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
+        pos = str_val.size() + 1;
+        draft_packet[pos] = '\0';
+        ++pos;
+      };
+      
+      if (auto opt{std::get<0>(*val)}; opt) {
+        makeParam (&opt.value());
+      }
+      if (auto opt{std::get<1>(*val)}; opt) {
+        makeParam (&opt.value());
+      }
+      if (auto opt{std::get<2>(*val)}; opt) {
+        makeParam (&opt.value());
+      }
+      //  Multicast parameters set
+      if (auto opt{std::get<3>(*val)}; opt) {
+        memcpy(&draft_packet[pos], "multicast", 9);
+        pos += 10;
+        draft_packet[pos] = '\0';
+        str_val = std::get<0>(opt.value());
+        memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());  
+        pos = str_val.size() + 1;
+        draft_packet[pos] = ',';
+        ++pos;
+        str_val = std::to_string(std::get<1>(opt.value()));
+        memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
+        pos = str_val.size() + 1;
+        draft_packet[pos] = ',';
+        ++pos;
+        str_val = std::to_string(std::get<2>(opt.value()));
+        memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
+        pos = str_val.size() + 1;
         draft_packet[pos] = '\0';
         ++pos;
       }
+
       packet_size = pos + 2;
       packet = new char[packet_size];
       memcpy(packet, &opcode, sizeof(opcode));
@@ -1078,35 +1149,29 @@ namespace {
     }
 
     //  Send to client OACK packet
-    bool sendOACK(uint16_t buff_size = 0, uint8_t timeout = 0, size_t file_size = 0) noexcept {
+    bool sendOACK(optional<uint16_t> file_size, optional<uint16_t> blk_size, optional<uint16_t> timeout, optional<string> ip_addr, optional<uint16_t> port, optional<bool> master) noexcept {
       bool ret = true;
-      uint16_t packet_size;
-      vector<ReqParam> val;
-
-      if (buff_size > 0) {
-        val.emplace_back(make_pair(BLKSIZE_OPT_NAME, buff_size));
-        packet_size = sizeof(buff_size);
-        packet_size += strlen(BLKSIZE_OPT_NAME);
-        ++packet_size;
+      optional<MulticastOption> mult;
+      optional<ReqParam> t_size, b_size, t_out;
+ 
+      if (file_size) {
+        t_size = make_pair(OptExtent::tsize , file_size.value());
       }
-
-      if (timeout > 0) {
-        val.emplace_back(make_pair(TIMEOUT_OPT_NAME, timeout));
-        packet_size += sizeof(timeout);
-        packet_size += strlen(TIMEOUT_OPT_NAME);
-        ++packet_size;
+      if (blk_size) {
+        b_size = make_pair(OptExtent::blksize, blk_size.value());
       }
-
-      if (file_size > 0) {
-        val.emplace_back(make_pair(TSIZE_OPT_NAME, file_size));
-        packet_size += sizeof(file_size);
-        packet_size += strlen(TSIZE_OPT_NAME);
-        ++packet_size;
+      if (timeout) {
+        t_out = make_pair(OptExtent::timeout, timeout.value());
       }
-
-      // packet_size += 2;  //  OpCode size
-      OACKPacket data{ &val };
-      // data.makeData(&val);
+      if (ip_addr) {
+        auto val {mult.value()};
+        std::get<0> (val) = ip_addr.value();
+        std::get<1> (val) = port.value();
+        std::get<2> (val) = master.value();
+      }
+      
+      OACKOption val {make_tuple(t_size, b_size, t_out, mult)};
+      OACKPacket data{&val};
       auto res = sendto(sock_id, &data.packet, data.packet_size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
       if (res == SOCKET_ERR) {
         ret = false;
@@ -1211,36 +1276,36 @@ namespace {
       return ret;
     }
     //  Check RFC 1782 and above option extensions parameters
-    bool checkParam(vector<ReqParam>* val = nullptr, size_t file_size = 0) noexcept {
-      if (!val) {
-        return false;
-      }
-      for (auto& param_set : *val) {
-        std::transform(param_set.first.begin(), param_set.first.end(), param_set.first.begin(), ::tolower);
+    // bool checkParam(vector<ReqParam>* val = nullptr, size_t file_size = 0) noexcept {
+    //   if (!val) {
+    //     return false;
+    //   }
+    //   for (auto& param_set : *val) {
+    //     std::transform(param_set.first.begin(), param_set.first.end(), param_set.first.begin(), ::tolower);
 
-        if (!param_set.first.compare(TSIZE_OPT_NAME)) {
-          if (file_size) {
-            param_set.second = file_size;
-          }
-          else {
-            if (param_set.second > max_file_size) {
-              param_set.second = max_file_size;
-            }
-          }
-        }
-        if (!param_set.first.compare(TIMEOUT_OPT_NAME)) {
-          if (param_set.second > max_time_out) {
-            param_set.second = max_time_out;
-          }
-        }
-        if (!param_set.first.compare(BLKSIZE_OPT_NAME)) {
-          if (param_set.second > max_buff_size) {
-            param_set.second = max_buff_size;
-          }
-        }
-      }
-      return true;
-    }
+    //     if (!param_set.first.compare(TSIZE_OPT_NAME)) {
+    //       if (file_size) {
+    //         param_set.second = file_size;
+    //       }
+    //       else {
+    //         if (param_set.second > max_file_size) {
+    //           param_set.second = max_file_size;
+    //         }
+    //       }
+    //     }
+    //     if (!param_set.first.compare(TIMEOUT_OPT_NAME)) {
+    //       if (param_set.second > max_time_out) {
+    //         param_set.second = max_time_out;
+    //       }
+    //     }
+    //     if (!param_set.first.compare(BLKSIZE_OPT_NAME)) {
+    //       if (param_set.second > max_buff_size) {
+    //         param_set.second = max_buff_size;
+    //       }
+    //     }
+    //   }
+    //   return true;
+    // }
   protected:
     size_t max_file_size{2199023255552}; // 2 TB in bytes
     uint8_t max_time_out{255};
