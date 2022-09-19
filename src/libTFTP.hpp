@@ -173,14 +173,17 @@ namespace {
   template <typename T> concept TransType = std::same_as <T, byte> || std::same_as <T, char>;
 
   using FileMode = tuple<fs::path, // Read or write file path
-    bool,  //  Read file operation - true
-    bool,  //  Binary operation - true
-    size_t,  //  Port for Net IO
-    uint16_t,  //  Buffer size
-    uint8_t,  //  Timeout
-    size_t,  //  Fille size for write operations
+    bool,  //  Read file operation - true for read
+    bool,  //  Binary operation - true for bin
+    optional<size_t>,  //  Port for Net IO
+    optional<uint16_t>,  //  Buffer size
+    optional<uint8_t>,  //  Timeout
+    optional<size_t>,  //  Fille size for write operations
+    optional<string>,  //  Multicast IP addr
+    optional<uint16_t>,  //Multicast_port_number
     struct sockaddr_storage  //  Client address
   >;
+  
   using ThrWorker = pair<std::condition_variable*, FileMode*>;
 
   enum class TFTPMode : uint8_t { netascii = 1, octet = 2, mail = 3 };
@@ -404,7 +407,7 @@ namespace {
     optional<vector<ReqParam>> req_params;
     optional<MulticastOption> multicast;
     //  Sorting data and creating data map
-    bool makeFrameStruct(size_t pack_size) {
+    [[nodiscard]] bool makeFrameStruct(size_t pack_size) noexcept {
       bool ret{ false };
       uint16_t opcode;
 
@@ -597,6 +600,46 @@ namespace {
       } catch (...) {
         ret = false;
       }
+      return ret;
+    }
+    //  Get parameters for new clients request transfer session
+    [[nodiscard]] optional<FileMode> getParams(struct sockaddr_storage, optional<size_t> io_port) noexcept {
+      optional<FileMode> ret;
+      fs::path path;
+      bool read_file{false}, bin_operation {false};
+      optional<uint16_t> buffer, timeout, transfer_size, multicast_port;
+      optional<string> multicast_addr;
+      optional<bool> multicast_master;
+
+      try {
+        // TODO: Add path to work dir
+        path = std::get<6> (packet_frame_structure);
+        if (auto op_code {std::get<0>(packet_frame_structure); op_code == TFTPOpeCode::TFTP_OPCODE_WRITE}) {
+          read_file = true;
+        }
+        if (auto transfer_mode {std::get<2>(packet_frame_structure)}; transfer_mode == TFTPMode::octet) {
+          bin_operation = true;
+        }
+        if (req_params) {
+          for (auto &param : *req_params) {
+            switch (auto param_name {param.first}) {
+              case OptExtent::tsize : transfer_size = param.second.value(); break;
+              case OptExtent::timeout : timeout = param.second.value(); break;
+              case OptExtent::blksize : buffer = param.second.value(); break;
+            }
+          }
+        }
+        if (multicast) {
+          multicast_addr = std::get<0>(multicast);
+          multicast_port = std::get<1>(multicast);
+          multicast_master = std::get<2>(multicast);
+        }
+        ret = make_tuple{path, read_file, bin_operation, io_port, buffer, timeout, transfer_size, multicast_addr, multicast_port, multicast_master, struct sockaddr_storage};
+      } catch (...) {
+        ret.reset(nullptr);
+      }
+      
+      
       return ret;
     }
   };
@@ -961,9 +1004,6 @@ namespace {
   private:
     std::ofstream write_file;
     std::ifstream read_file;
-
-
-
   };
 
   //  Log to file
@@ -1650,7 +1690,7 @@ namespace TFTPSrvLib {
       }
       return ret;
     }
-    //  Transfer worker
+    //  Transfer worker - clients IO session
     void worker(void) {
       bool ret;
       mutex mtx;
@@ -1676,7 +1716,7 @@ namespace TFTPSrvLib {
         ret = transfer->sendOACK(std::get<4>(file_mode), std::get<5>(file_mode), std::get<6>(file_mode));
         if (!ret) {
           if (log) {
-            log->infoMsg("Thread ID" + thr_id, "Can't send parametrs confirmation (OACK) message");
+            log->infoMsg("Thread ID" + thr_id, "Can't send parameters confirmation (OACK) message");
           }
           return;
         }

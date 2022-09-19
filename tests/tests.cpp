@@ -408,7 +408,7 @@ TEST(Packet, CharData) {
 //   EXPECT_FALSE (last_data_address);
 // }
 
-// TEST(ReadPacket, ACK_PackNum_Wron_BlockNumber) {
+// TEST(ReadPacket, ACK_PackNum_Wrong_BlockNumber) {
 //   ReadPacket data;
 //   char req_data[] {'0', '4', '\0', '1'};
 //   uint16_t net_code{htons(4)};
