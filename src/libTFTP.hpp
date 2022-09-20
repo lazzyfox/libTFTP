@@ -612,9 +612,9 @@ namespace {
       optional<bool> multicast_master;
 
       try {
-        // TODO: Add path to work dir
-        path = std::get<6> (packet_frame_structure);
-        if (auto op_code {std::get<0>(packet_frame_structure); op_code == TFTPOpeCode::TFTP_OPCODE_WRITE}) {
+        // TODO: Add path to work dir or check how it created in worker
+        path = std::get<6> (packet_frame_structure).value();
+        if (auto op_code {std::get<0>(packet_frame_structure)}; op_code == TFTPOpeCode::TFTP_OPCODE_WRITE) {
           read_file = true;
         }
         if (auto transfer_mode {std::get<2>(packet_frame_structure)}; transfer_mode == TFTPMode::octet) {
@@ -622,17 +622,18 @@ namespace {
         }
         if (req_params) {
           for (auto &param : *req_params) {
-            switch (auto param_name {param.first}) {
-              case OptExtent::tsize : transfer_size = param.second.value(); break;
-              case OptExtent::timeout : timeout = param.second.value(); break;
-              case OptExtent::blksize : buffer = param.second.value(); break;
+            switch (auto param_name {param.first}; param_name) {
+              case OptExtent::multicast : [[fallthrough]];
+              case OptExtent::tsize : transfer_size = param.second; break;
+              case OptExtent::timeout : timeout = param.second; break;
+              case OptExtent::blksize : buffer = param.second; break;
             }
           }
         }
         if (multicast) {
-          multicast_addr = std::get<0>(multicast);
-          multicast_port = std::get<1>(multicast);
-          multicast_master = std::get<2>(multicast);
+          multicast_addr = std::get<0>(multicast.value());
+          multicast_port = std::get<1>(multicast.value());
+          multicast_master = std::get<2>(multicast.value());
         }
         ret = make_tuple{path, read_file, bin_operation, io_port, buffer, timeout, transfer_size, multicast_addr, multicast_port, multicast_master, struct sockaddr_storage};
       } catch (...) {
