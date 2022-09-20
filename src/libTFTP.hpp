@@ -603,7 +603,7 @@ namespace {
       return ret;
     }
     //  Get parameters for new clients request transfer session
-    [[nodiscard]] optional<FileMode> getParams(struct sockaddr_storage, optional<size_t> io_port) noexcept {
+    [[nodiscard]] optional<FileMode> getParams(struct sockaddr_storage addr_stor, optional<size_t> io_port) noexcept {
       optional<FileMode> ret;
       fs::path path;
       bool read_file{false}, bin_operation {false};
@@ -635,12 +635,12 @@ namespace {
           multicast_port = std::get<1>(multicast.value());
           multicast_master = std::get<2>(multicast.value());
         }
-        ret = make_tuple{path, read_file, bin_operation, io_port, buffer, timeout, transfer_size, multicast_addr, multicast_port, multicast_master, struct sockaddr_storage};
+        ret = make_tuple(path, read_file, bin_operation, io_port, buffer, timeout, transfer_size, multicast_addr, multicast_port, addr_stor);
       } catch (...) {
-        ret.reset();
+        if (ret) {
+          ret.reset();
+        }
       }
-      
-      
       return ret;
     }
   };
