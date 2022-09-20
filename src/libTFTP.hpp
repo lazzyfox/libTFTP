@@ -636,7 +636,7 @@ namespace {
         }
         ret = make_tuple{path, read_file, bin_operation, io_port, buffer, timeout, transfer_size, multicast_addr, multicast_port, multicast_master, struct sockaddr_storage};
       } catch (...) {
-        ret.reset(nullptr);
+        ret.reset();
       }
       
       
