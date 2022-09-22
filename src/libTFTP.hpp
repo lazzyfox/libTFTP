@@ -1232,7 +1232,7 @@ namespace {
     socklen_t  cli_addr_size;
     string multicast_address;
     struct sockaddr_in multicast_int;
-    struct in_addr localInterface;
+    struct in_addr local_int;
     
 
     string getERRNO(void) {
@@ -1270,7 +1270,6 @@ namespace {
         }
         if (bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen) == -1) {
           close(sock_id);
-          localInterface.s_addr = addr_p->ai_addr->s_addr;
           continue;
         }
         ret = true;
@@ -1281,6 +1280,8 @@ namespace {
     }
     [[nodiscard]] bool init_multicast () noexcept {
       bool ret {false};
+      struct  sockaddr_in addr;
+      socklen_t len = sizeof addr;
       memset((char *) &multicast_int, 0, sizeof(multicast_int));
       multicast_int.sin_family = AF_INET;
       multicast_int.sin_addr.s_addr = inet_addr(multicast_address.c_str());
@@ -1289,10 +1290,12 @@ namespace {
       if (!ret) {
         return ret;
       }
-      ret = setsockopt(sock_id, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface));
-      if (!ret) {
+      if (auto res{getsockname(sock_id, (struct sockaddr*)&addr, &len)}; res == -1) {
         return ret;
       }
+      local_int.s_addr = inet_addr(inet_ntoa(addr.sin_addr));
+      ret = setsockopt(sock_id, IPPROTO_IP, IP_MULTICAST_IF, (char *)&local_int, sizeof(local_int));
+      
       return ret;
     }
   };
