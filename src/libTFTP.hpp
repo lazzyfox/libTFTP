@@ -406,6 +406,7 @@ namespace {
     > packet_frame_structure;
     optional<vector<ReqParam>> req_params;
     optional<MulticastOption> multicast;
+    FileMode trans_params;
     //  Sorting data and creating data map
     [[nodiscard]] bool makeFrameStruct(size_t pack_size) noexcept {
       bool ret{ false };
@@ -603,8 +604,8 @@ namespace {
       return ret;
     }
     //  Get parameters for new clients request transfer session
-    [[nodiscard]] optional<FileMode> getParams(struct sockaddr_storage addr_stor, optional<size_t> io_port) noexcept {
-      optional<FileMode> ret;
+    [[nodiscard]] bool getParams(struct sockaddr_storage addr_stor, optional<size_t> io_port) noexcept {
+      bool ret {true};
       fs::path path;
       bool read_file{false}, bin_operation {false};
       optional<uint16_t> buffer, timeout, transfer_size, multicast_port;
@@ -635,10 +636,10 @@ namespace {
           multicast_port = std::get<1>(multicast.value());
           multicast_master = std::get<2>(multicast.value());
         }
-        ret = make_tuple(path, read_file, bin_operation, io_port, buffer, timeout, transfer_size, multicast_addr, multicast_port, addr_stor);
+        trans_params = make_tuple(path, read_file, bin_operation, io_port, buffer, timeout, transfer_size, multicast_addr, multicast_port, addr_stor);
       } catch (...) {
         if (ret) {
-          ret.reset();
+          ret = false;
         }
       }
       return ret;
@@ -1222,13 +1223,17 @@ namespace {
   protected:
     //  Socket params
     const size_t port;
-    int sock_id{0}; 
+    int sock_id {0}; 
     struct sockaddr_in address;
     int opt {1};
     struct sockaddr_storage cliaddr;  //  Client connection address 
     //socklen_t  cli_addr_size{ sizeof(cliaddr)};
     int addrlen {sizeof(address)};
     socklen_t  cli_addr_size;
+    string multicast_address;
+    struct sockaddr_in multicast_int;
+    struct in_addr localInterface;
+    
 
     string getERRNO(void) {
       string err_str;
@@ -1244,7 +1249,7 @@ namespace {
       return err_str;
     }
   private:
-    bool init(const size_t port = DEFAULT_PORT) noexcept {
+    [[nodiscard]] bool init(const size_t port = DEFAULT_PORT) noexcept {
       bool ret{ false };
       struct addrinfo hints, * servinfo = nullptr;
       memset(&hints, 0, sizeof hints);
@@ -1257,7 +1262,7 @@ namespace {
         return ret;
       }
 
-      // loop through all the results and bind to the first we can
+      // Looking for suitable interface
       for (auto addr_p = servinfo; addr_p != NULL; addr_p = addr_p->ai_next) {
         sock_id = socket(addr_p->ai_family, addr_p->ai_socktype, addr_p->ai_protocol);
         if (sock_id == -1) {
@@ -1265,12 +1270,29 @@ namespace {
         }
         if (bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen) == -1) {
           close(sock_id);
+          localInterface.s_addr = addr_p->ai_addr->s_addr;
           continue;
         }
         ret = true;
         break;
       }
       freeaddrinfo(servinfo);
+      return ret;
+    }
+    [[nodiscard]] bool init_multicast () noexcept {
+      bool ret {false};
+      memset((char *) &multicast_int, 0, sizeof(multicast_int));
+      multicast_int.sin_family = AF_INET;
+      multicast_int.sin_addr.s_addr = inet_addr(multicast_address.c_str());
+      multicast_int.sin_port = htons(port);
+      ret = init(port);
+      if (!ret) {
+        return ret;
+      }
+      ret = setsockopt(sock_id, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface));
+      if (!ret) {
+        return ret;
+      }
       return ret;
     }
   };
