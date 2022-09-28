@@ -1091,6 +1091,7 @@ namespace {
 
   // TODO : Change exceptions to throw all errors to upper level
   //  Base class for networking
+  //  - creating sockets and a few general transfer network options
   class BaseNet {
   public:
     //  Transfer param
@@ -1130,97 +1131,12 @@ namespace {
         std::cerr << e.what() << std::endl;
       }
     }
-
-    //  Multicast traffic setup
-    BaseNet(const size_t buff_size, const size_t timeout, const size_t file_size, optional<string> mult_addr, optional<uint16_t> mult_port)
-      : buff_size{ buff_size }, timeout{ timeout }, file_size{ file_size } {
-        try {
-          
-          if (!mult_addr) {
-            throw std::runtime_error ("Multicast socket CREATING error");
-          }
-          multicast_address = mult_addr.value();
-          if (mult_port) {
-            port = mult_port.value();
-          } else {
-            port = MULTICAST_DEFAULT_PORT;
-          }
-          
-          if (!init_multicast()) {
-            throw std::runtime_error ("Multicast socket CREATING error");
-          }
-          if (!init_multicast()) {
-            throw std::runtime_error ("Multicast socket CREATING error");
-          }
-            //  Buffer size setup
-          if (buff_size != 512) {
-            if (setsockopt(sock_id, SOL_SOCKET, SO_RCVBUF, &buff_size, sizeof(buff_size))) {
-              throw std::runtime_error("Socket SET RECEIVE BUFFER SIZE error");
-            }
-          }
-
-          //  In/Out traffic timeout  setup
-          if (timeout != 3) {
-            if (setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
-              throw std::runtime_error("Socket SET RECEIVE TIMEOUT error");
-            }
-          }
-        } catch (const std::exception& e){
-          std::cerr << "BaseNet - ";
-          std::cerr << e.what() << std::endl;
-        }
-      }
-    //      BaseNet (const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr)
-    //        : buff_size{buff_size}, timeout{timeout}, file_size{file_size}, port{port} {
-    //          timeval tm_out;
-    //          try {
-    //            sock_id = socket(AF_UNSPEC, SOCK_DGRAM, 0);
-    //            if (!sock_id) {
-    //              throw std::runtime_error ("Socket CREATING error");
-    //            }
-    //            if (setsockopt(sock_id, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
-    //              throw std::runtime_error ("Socket SET OPTIONS error");
-    //            }
-    //            if (buff_size != 512) {
-    //              if (setsockopt(sock_id, SOL_SOCKET, SO_RCVBUF, &buff_size, sizeof(buff_size))) {
-    //                throw std::runtime_error ("Socket SET RECEIVE BUFFER SIZE error");
-    //              }
-    //              if (setsockopt(sock_id, SOL_SOCKET, SO_SNDBUF, &buff_size, sizeof(buff_size))) {
-    //                throw std::runtime_error ("Socket SET SEND BUFFER error");
-    //              }
-    //            }
-    //            if (timeout != 3) {
-    //              if (setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) {
-    //                throw std::runtime_error ("Socket SET RECEIVE TIMEOUT error");
-    //              }
-    //              if (setsockopt(sock_id, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout))) {
-    //                throw std::runtime_error ("Socket SET SEND TIMEOUT error");
-    //              }
-    //            }
-    //            address.sin_family = AF_UNSPEC;
-    //            address.sin_addr.s_addr = INADDR_ANY;
-    //            address.sin_port = htons(port);
-    //            if (bind(sock_id, (struct sockaddr *)&address, sizeof(address)) < 0) {
-    //                throw std::runtime_error ("Socket BIND error");
-    //            }
-    //            memmove(&cliaddr, &cln_addr, sizeof(cln_addr));
-    //            cli_addr_size = sizeof(cliaddr);
-    //            tm_out.tv_sec = timeout;
-    //            auto set_sock = setsockopt(sock_id, SOL_SOCKET, SO_SNDTIMEO, &tm_out, sizeof(tm_out));
-    //            if (!set_sock) {
-    //              throw std::runtime_error ("Socket CREATING error");
-    //            }
-
-    //         } catch (const std::exception& e) {
-    //           std::cerr<< "BaseNet - ";
-    //           std::cerr << e.what()<< std::endl;
-    //         }
-    //      }
     BaseNet(const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr)
       : BaseNet(DEFAULT_PORT, buff_size, timeout, file_size, cln_addr) {}
     BaseNet(const size_t port, struct sockaddr_storage cln_addr)
       : BaseNet(port, 0, 0, 0, cln_addr) {}
-    BaseNet(const FileMode* trans_mode) {
+    //  Creating standard net IO socket class or multicast socket if in file mode multicast settings exists 
+    BaseNet(FileMode* const trans_mode) {
       try {
         if (auto mult_addr {std::get<7>(*trans_mode)}; mult_addr) {
           if (auto mult_port{std::get<8>(*trans_mode)}; mult_port) {
@@ -1261,6 +1177,7 @@ namespace {
       }
       
     }
+    
     virtual ~BaseNet() {
       if (sock_id) {
         close(sock_id);
@@ -1468,8 +1385,14 @@ namespace {
       : BaseNet{ port }, FileIO{ file_name, read, bin }, terminate_transfer{ terminate } {}
     NetSock(const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr, const std::filesystem::path file_name, const bool read, const bool bin, atomic<bool>* terminate)
       : BaseNet{ port, buff_size, timeout, file_size, cln_addr }, FileIO{ file_name, read, bin }, terminate_transfer{ terminate } {}
-    NetSock(const FileMode* mode, atomic<bool>* terminate)
-      : NetSock{ std::get<3>(*mode), std::get<4>(*mode), std::get<5>(*mode), std::get<6>(*mode), std::get<7>(*mode), std::get<0>(*mode), std::get<1>(*mode), std::get<2>(*mode), terminate } {}
+    //  Multicast constructor
+    NetSock(const FileMode* mode, struct sockaddr_storage cln_addr, atomic<bool>* terminate)
+        : NetSock{ std::get<3>(*mode).value(), std::get<4>(*mode).value(), std::get<5>(*mode).value(), std::get<6>(*mode).value(), cln_addr, std::get<0>(*mode), std::get<1>(*mode), std::get<2>(*mode), terminate} 
+        {
+          if (std::get<7>(*mode)) {
+            mult_transfer = make_unique<BaseNet>(mode);
+          }
+        }
     NetSock(size_t port, const fs::path file_name, const bool read, const bool bin, atomic<bool>* terminate, shared_ptr<Log> log)
       : NetSock{ port, file_name, read, bin, terminate } {
       this->log = log;
@@ -1491,7 +1414,7 @@ namespace {
     NetSock& operator = (const NetSock&&) = delete;
 
     template <typename T> requires TransType<T>
-    bool readFile(void) {
+    [[nodiscard]]  bool readFile(void) {
       bool ret{ true };
       bool run_transfer{ true };
       size_t read_result{ 0 };
@@ -1616,8 +1539,30 @@ namespace {
 
       return ret;
     }
-     
-    bool readFileMult (void) {}
+    template <typename T> requires TransType<T>
+    [[nodiscard]] bool readFileMult (void) {
+      bool ret {true};
+      
+      if(mult_transfer) {
+        return false;
+      }
+       //  Check if file exists and accessible
+      if (!std::filesystem::exists(file_name)) {
+        ConstErrorPacket<FILE_OPENEN_ERR_SIZE> error(TFTPError::File_not_found, (char*)FILE_OPENEN_ERR);
+        sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+        if (log) {
+          log->debugMsg(__PRETTY_FUNCTION__, "Can't read requested file");
+        }
+        return false;
+      }
+      if (log) {
+        log->debugMsg(__PRETTY_FUNCTION__, "Start to read a requested file");
+      }
+      while (!terminate_transfer->load() && run_transfer) {
+
+      }
+      return ret;
+    }
     template <typename T> requires TransType<T>
     bool writeFile(bool delete_if_error = false) {
       bool ret{ true };
