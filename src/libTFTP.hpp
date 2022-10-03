@@ -1094,6 +1094,7 @@ namespace {
   //  - creating sockets and a few general transfer network options
   class BaseNet {
   public:
+    int sock_id {0}; 
     //  Transfer param
     const size_t buff_size{ 512 };
     const size_t timeout{ 3 };
@@ -1190,7 +1191,7 @@ namespace {
     BaseNet& operator = (const BaseNet&&) = delete;
 
     //  Send to client OACK packet
-    bool sendOACK(optional<uint16_t> file_size, optional<uint16_t> blk_size, optional<uint16_t> timeout, optional<string> ip_addr, optional<uint16_t> port, optional<bool> master) noexcept {
+    [[nodiscard]]bool sendOACK(optional<uint16_t> file_size, optional<uint16_t> blk_size, optional<uint16_t> timeout, optional<string> ip_addr, optional<uint16_t> port, optional<bool> master) noexcept {
       bool ret = true;
       optional<MulticastOption> mult;
       optional<ReqParam> t_size, b_size, t_out;
@@ -1222,7 +1223,7 @@ namespace {
   protected:
     //  Socket params
     size_t port;
-    int sock_id {0}; 
+    
     struct sockaddr_in address;
     int opt {1};
     struct sockaddr_storage cliaddr;  //  Client connection address 
@@ -1542,7 +1543,13 @@ namespace {
     template <typename T> requires TransType<T>
     [[nodiscard]] bool readFileMult (void) {
       bool ret {true};
-      
+      ssize_t send_res;
+      TFTPOpeCode op_code;
+      uint16_t block_number;
+      DataPacket<T> data_pack{ buff_size };  // Message size + 4 byte for TFTP data packet overhead
+      ReadFileData<T> data{ dat_size }; // packet_count
+
+
       if(mult_transfer) {
         return false;
       }
@@ -1550,6 +1557,7 @@ namespace {
       if (!std::filesystem::exists(file_name)) {
         ConstErrorPacket<FILE_OPENEN_ERR_SIZE> error(TFTPError::File_not_found, (char*)FILE_OPENEN_ERR);
         sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+
         if (log) {
           log->debugMsg(__PRETTY_FUNCTION__, "Can't read requested file");
         }
@@ -1558,6 +1566,14 @@ namespace {
       if (log) {
         log->debugMsg(__PRETTY_FUNCTION__, "Start to read a requested file");
       }
+      ret = sendOACK(optional<uint16_t> file_size, optional<uint16_t> blk_size, optional<uint16_t> timeout, optional<string> ip_addr, optional<uint16_t> port, optional<bool> master);
+      if (!ret) {
+        if (log) {
+        log->debugMsg(__PRETTY_FUNCTION__, "Send OASCK error");
+        }
+        return ret;
+      }
+
       while (!terminate_transfer->load() && run_transfer) {
 
       }
