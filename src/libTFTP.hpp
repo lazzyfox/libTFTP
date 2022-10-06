@@ -62,6 +62,7 @@ SOFTWARE.
 #include <tuple>
 #include <queue>
 #include <optional>
+#include <variant>
 #include <functional>
 #include <iostream>
 #include <fstream>
@@ -102,6 +103,7 @@ namespace {
   using std::tuple;
   using std::make_tuple;
   using std::optional;
+  using std::variant;
   using std::function;
   using std::string;
   using std::pair;
@@ -122,6 +124,7 @@ namespace {
   using std::byte;
   using std::ranges::transform;
   using std::back_inserter;
+  template<std::size_t... Ints> using index_sequence = std::integer_sequence<std::size_t, Ints...>;
 
 
   constexpr string_view lib_ver{ "0.0.3" };
@@ -155,12 +158,18 @@ namespace {
   constexpr size_t FILE_OPENEN_ERR_SIZE{ 22 };
   constexpr char FILE_READ_ERR[]{ "Can't read file\0" };
   constexpr size_t FILE_READ_ERR_SIZE{ 22 };
-  constexpr char DATA_REORDER_ERR[]{ "Can't read file\0" };
-  constexpr size_t DATA_REORDER_ERR_SIZE{ 26 };
+  constexpr char DATA_REORDER_ERR[]{ "Wrong packets number received\0" };
+  constexpr size_t DATA_REORDER_ERR_SIZE{ 30 };
   constexpr char FILE_EXISTS_ERR[]{ "File already exists\0" };
   constexpr size_t FILE_EXISTS_ERR_SIZE{ 25 };
   constexpr char MAX_PACK_NUMBER_ERR[]{ "Packet number exceeds\0" };
   constexpr size_t MAX_PACK_NUMBER_ERR_SIZE{ 27 };
+  constexpr char BAD_FRAME_FORMAT_ERR[]{ "Bad request format\0" };
+  constexpr size_t BAD_FRAME_FORMAT_ERR_SIZE{ 19 };
+  constexpr char WRONG_REQUEST_ERR[]{ "Wrong request type - waiting for read or write\0" };
+  constexpr size_t WRONG_REQUEST_ERR_SIZE{ 47 };
+  constexpr char BUSY_ERR[]{ "Server busy\0" };
+  constexpr size_t BUSY_ERR_SIZE{ 12 };
 
 
   //  RFC 1782 and above option extensions names
@@ -179,12 +188,12 @@ namespace {
     optional<size_t>,  //  Port for Net IO
     optional<uint16_t>,  //  Buffer size
     optional<uint8_t>,  //  Timeout
-    optional<size_t>,  //  Fille size for write operations
+    optional<size_t>,  //  File size for write operations
     optional<string>,  //  Multicast IP addr
     optional<uint16_t>,  //Multicast_port_number
     struct sockaddr_storage  //  Client address
   >;
-  
+  //  Parameters set for worker (transfer session)
   using ThrWorker = pair<std::condition_variable*, FileMode*>;
 
   enum class TFTPMode : uint8_t { netascii = 1, octet = 2, mail = 3 };
@@ -206,7 +215,7 @@ namespace {
     Unknown_port_number,
     File_exists,
     No_such_user,
-    Optins_are_not_supported
+    Options_are_not_supported
   };
 
   enum class LogSeverety : uint8_t { Error, Warning, Information, Debug };
@@ -241,7 +250,7 @@ namespace {
                                                      {5, TFTPError::Unknown_port_number},
                                                      {6, TFTPError::File_exists},
                                                      {7, TFTPError::No_such_user},
-                                                     {8, TFTPError::Optins_are_not_supported} };
+                                                     {8, TFTPError::Options_are_not_supported} };
   const unordered_map<string, OptExtent> OptExtGet{ {"tsize", OptExtent::tsize},
                                                     {"timeout", OptExtent::timeout},
                                                     {"blksize", OptExtent::blksize},
@@ -408,8 +417,33 @@ namespace {
     optional<vector<ReqParam>> req_params;
     optional<MulticastOption> multicast;
     FileMode trans_params;
+    //  Clear data in struct 
+    void reset(void) {
+      clear();
+
+      std::get<1>(packet_frame_structure).reset();
+      std::get<2>(packet_frame_structure).reset();
+      std::get<3>(packet_frame_structure).reset();
+      std::get<4>(packet_frame_structure).reset();
+      std::get<5>(packet_frame_structure).reset();
+      std::get<6>(packet_frame_structure).reset();
+
+      if (req_params) {
+        req_params.reset();
+      }
+      if(multicast) {
+        multicast.reset();
+      }
+
+      std::get<3>(trans_params).reset();
+      std::get<4>(trans_params).reset();
+      std::get<5>(trans_params).reset();
+      std::get<6>(trans_params).reset();
+      std::get<7>(trans_params).reset();
+      std::get<8>(trans_params).reset();
+    }
     //  Sorting data and creating data map
-    [[nodiscard]] bool makeFrameStruct(size_t pack_size) noexcept {
+    [[nodiscard]] bool makeFrameStruct(size_t pack_size = PACKET_MAX_SIZE) noexcept {
       bool ret{ false };
       uint16_t opcode;
 
@@ -614,7 +648,7 @@ namespace {
       optional<bool> multicast_master;
 
       try {
-        // TODO: Add path to work dir or check how it created in worker
+        //  Path from local root dir
         path = std::get<6> (packet_frame_structure).value();
         if (auto op_code {std::get<0>(packet_frame_structure)}; op_code == TFTPOpeCode::TFTP_OPCODE_WRITE) {
           read_file = true;
@@ -851,13 +885,17 @@ namespace {
     ResPool& operator = (ResPool&) = delete;
     ResPool& operator = (ResPool&&) = delete;
 
-    [[nodiscard]] PoolType getRes(void) noexcept {
+    [[nodiscard]] variant<PoolType, bool> getRes(void) noexcept {
+      variant<PoolType, bool> ret {false}; 
       lock_guard<std::mutex> pool_lock(pool_access);
-      PoolType ret{ thr_pool.front() };
+      if (!thr_pool.size()) {
+        return ret;
+      }
+      ret = thr_pool.front();
       thr_pool.pop();
       return ret;
     }
-    bool setRes(PoolType thr) noexcept {
+    [[nodiscard]] bool setRes(PoolType thr) noexcept {
       bool ret{ false };
       lock_guard<std::mutex> pool_lock(pool_access);
       if (thr_pool.size() >= pool_max_size) {
@@ -884,6 +922,7 @@ namespace {
   public:
     bool file_is_open{ false };
     bool bin_file{ false };
+
     //  Log file constructors
     explicit FileIO(const fs::path file_name) : file_name{ file_name } {
       write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
@@ -896,6 +935,7 @@ namespace {
         write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
       }
     }
+    
     //  Data transfer file operations constructors
     FileIO(const fs::path file_name, const bool read, const bool bin) : file_name{ file_name } {
       if (fs::exists(file_name)) {
@@ -939,7 +979,7 @@ namespace {
         }
       }
     }
-    FileIO(FileMode mode) : FileIO(std::get<0>(mode), std::get<1>(mode), std::get<2>(mode)) {}
+    FileIO(const FileMode* const mode) : FileIO(std::get<0>(*mode), std::get<1>(*mode), std::get<2>(*mode)) {}
     virtual ~FileIO() {
       if (write_file.is_open()) {
         write_file.close();
@@ -954,7 +994,7 @@ namespace {
     FileIO& operator = (const FileIO&) = delete;
     FileIO& operator = (const FileIO&&) = delete;
 
-    //  Read from file, as usal is
+    //  Read from file, as usual is
     template <typename T> requires TransType<T>
     [[nodiscard]] size_t readType(ReadFileData<T>* buffer) noexcept {
       size_t ret{ buffer->size };
@@ -1094,7 +1134,6 @@ namespace {
   //  - creating sockets and a few general transfer network options
   class BaseNet {
   public:
-    int sock_id {0}; 
     //  Transfer param
     const size_t buff_size{ 512 };
     const size_t timeout{ 3 };
@@ -1137,7 +1176,7 @@ namespace {
     BaseNet(const size_t port, struct sockaddr_storage cln_addr)
       : BaseNet(port, 0, 0, 0, cln_addr) {}
     //  Creating standard net IO socket class or multicast socket if in file mode multicast settings exists 
-    BaseNet(FileMode* const trans_mode) {
+    BaseNet(const FileMode* const trans_mode) {
       try {
         if (auto mult_addr {std::get<7>(*trans_mode)}; mult_addr) {
           if (auto mult_port{std::get<8>(*trans_mode)}; mult_port) {
@@ -1190,8 +1229,15 @@ namespace {
     BaseNet& operator = (const BaseNet&) = delete;
     BaseNet& operator = (const BaseNet&&) = delete;
 
+    // Send packet to client
+    template <typename T> requires TransType<T>
+    [[nodiscard]] ssize_t sndMulticastData(DataPacket<T>* const data_pack) noexcept {
+      ssize_t send_result;
+      send_result = sendto(sock_id, data_pack->packet, data_pack->packet_size, MSG_CONFIRM, (const struct sockaddr*)&multicast_int, sizeof(multicast_int));
+      return send_result;
+    }
     //  Send to client OACK packet
-    [[nodiscard]]bool sendOACK(optional<uint16_t> file_size, optional<uint16_t> blk_size, optional<uint16_t> timeout, optional<string> ip_addr, optional<uint16_t> port, optional<bool> master) noexcept {
+    [[nodiscard]]bool sendOACK(optional<uint16_t> file_size, optional<uint16_t> blk_size, optional<uint16_t> timeout, optional<string> ip_addr, optional<uint16_t> port) noexcept {
       bool ret = true;
       optional<MulticastOption> mult;
       optional<ReqParam> t_size, b_size, t_out;
@@ -1209,7 +1255,7 @@ namespace {
         auto val {mult.value()};
         std::get<0> (val) = ip_addr.value();
         std::get<1> (val) = port.value();
-        std::get<2> (val) = master.value();
+        std::get<2> (val) = true;
       }
       
       OACKOption val {make_tuple(t_size, b_size, t_out, mult)};
@@ -1223,7 +1269,7 @@ namespace {
   protected:
     //  Socket params
     size_t port;
-    
+    int sock_id {0}; 
     struct sockaddr_in address;
     int opt {1};
     struct sockaddr_storage cliaddr;  //  Client connection address 
@@ -1372,6 +1418,26 @@ namespace {
     //   }
     //   return true;
     // }
+    //  Check if requested params (RFC 1782) are compatible with current settings
+    bool checkParam(FileMode* const req_param, optional<size_t> file_size) {
+      if (!req_param) {
+        return false;
+      }
+      if (auto buff_size{std::get<4>(*req_param)}; buff_size) {
+        if (buff_size.value() > max_buff_size) {
+          std::get<4>(*req_param) = max_buff_size;
+        }
+      }
+      if (auto timeout{std::get<5>(*req_param)}; timeout) {
+        if (timeout.value() > max_time_out) {
+          std::get<5>(*req_param) = max_time_out;
+        }
+      }
+      if (auto req_file_size{std::get<6>(*req_param)}; !req_file_size && file_size) {
+        std::get<6>(*req_param) = file_size.value();
+      }
+      return true;
+    }
   protected:
     size_t max_file_size{2199023255552}; // 2 TB in bytes
     uint8_t max_time_out{255};
@@ -1382,29 +1448,25 @@ namespace {
   //  Data transfer session manager (socket, file to disk IO)
   class NetSock final : public BaseNet, public FileIO {
   public:
-    NetSock(size_t port, const fs::path file_name, const bool read, const bool bin, atomic<bool>* terminate)
+    //  Constructors for ordinary (point to point) data transfer
+    NetSock(size_t port, const fs::path file_name, const bool read, const bool bin, atomic<bool>* const terminate)
       : BaseNet{ port }, FileIO{ file_name, read, bin }, terminate_transfer{ terminate } {}
     NetSock(const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr, const std::filesystem::path file_name, const bool read, const bool bin, atomic<bool>* terminate)
       : BaseNet{ port, buff_size, timeout, file_size, cln_addr }, FileIO{ file_name, read, bin }, terminate_transfer{ terminate } {}
-    //  Multicast constructor
-    NetSock(const FileMode* mode, struct sockaddr_storage cln_addr, atomic<bool>* terminate)
-        : NetSock{ std::get<3>(*mode).value(), std::get<4>(*mode).value(), std::get<5>(*mode).value(), std::get<6>(*mode).value(), cln_addr, std::get<0>(*mode), std::get<1>(*mode), std::get<2>(*mode), terminate} 
-        {
-          if (std::get<7>(*mode)) {
-            mult_transfer = make_unique<BaseNet>(mode);
-          }
-        }
     NetSock(size_t port, const fs::path file_name, const bool read, const bool bin, atomic<bool>* terminate, shared_ptr<Log> log)
       : NetSock{ port, file_name, read, bin, terminate } {
       this->log = log;
     }
-    NetSock(const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr, const std::filesystem::path file_name, const bool read, const bool bin, atomic<bool>* terminate, shared_ptr<Log> log)
+    NetSock(const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr, const std::filesystem::path file_name, const bool read, const bool bin, atomic<bool>* const terminate, const shared_ptr<Log> log)
       : NetSock(port, buff_size, timeout, file_size, cln_addr, file_name, read, bin, terminate) {
       this->log = log;
     }
-    NetSock(const FileMode* mode, atomic<bool>* terminate, shared_ptr<Log> log)
-      : NetSock(mode, terminate) {
-      this->log = log;
+    //  Multicast constructor
+    NetSock(const FileMode* const mode, atomic<bool>* const terminate, const shared_ptr<Log> log)
+       : BaseNet {mode}, FileIO {mode}, terminate_transfer{ terminate }, log{log} {
+      if (std::get<7>(*mode)) {
+        mult_transfer = make_unique<BaseNet>(mode);
+      }
     }
 
     ~NetSock() = default;
@@ -1415,7 +1477,7 @@ namespace {
     NetSock& operator = (const NetSock&&) = delete;
 
     template <typename T> requires TransType<T>
-    [[nodiscard]]  bool readFile(void) {
+    [[nodiscard]]  bool readFile(void) noexcept {
       bool ret{ true };
       bool run_transfer{ true };
       size_t read_result{ 0 };
@@ -1445,6 +1507,7 @@ namespace {
 
       //  Reding and sending file until it's end
       while (!terminate_transfer->load() && run_transfer) {
+        //  Read data from disk
         read_result = readType<T>(&data);
 
         if (!read_result) {
@@ -1479,8 +1542,7 @@ namespace {
 
         if (packet_order_number < max_order_num) {
           ++packet_order_number;
-        }
-        else {
+        } else {
           ConstErrorPacket<MAX_PACK_NUMBER_ERR_SIZE> error(TFTPError::Illegal_TFTP_operation, (char*)&MAX_PACK_NUMBER_ERR);
           sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
           if (log) {
@@ -1496,8 +1558,14 @@ namespace {
           }
           log->debugMsg(__PRETTY_FUNCTION__, "Ready to send data - " + msg);
         }
+
+        //  Send data packet 
         if (run_transfer) {
-          send_result = sendto(sock_id, &data_pack.packet, data_pack.packet_size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+          if (mult_transfer) {
+            send_result = mult_transfer->sndMulticastData(&data_pack);
+          } else {
+            send_result = sendto(sock_id, &data_pack.packet, data_pack.packet_size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+          }
         }
         else {
           DataPacket<T> snd_data{ dat_size + PACKET_DATA_OVERHEAD };
@@ -1541,46 +1609,7 @@ namespace {
       return ret;
     }
     template <typename T> requires TransType<T>
-    [[nodiscard]] bool readFileMult (void) {
-      bool ret {true};
-      ssize_t send_res;
-      TFTPOpeCode op_code;
-      uint16_t block_number;
-      DataPacket<T> data_pack{ buff_size };  // Message size + 4 byte for TFTP data packet overhead
-      ReadFileData<T> data{ dat_size }; // packet_count
-
-
-      if(mult_transfer) {
-        return false;
-      }
-       //  Check if file exists and accessible
-      if (!std::filesystem::exists(file_name)) {
-        ConstErrorPacket<FILE_OPENEN_ERR_SIZE> error(TFTPError::File_not_found, (char*)FILE_OPENEN_ERR);
-        sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-
-        if (log) {
-          log->debugMsg(__PRETTY_FUNCTION__, "Can't read requested file");
-        }
-        return false;
-      }
-      if (log) {
-        log->debugMsg(__PRETTY_FUNCTION__, "Start to read a requested file");
-      }
-      ret = sendOACK(optional<uint16_t> file_size, optional<uint16_t> blk_size, optional<uint16_t> timeout, optional<string> ip_addr, optional<uint16_t> port, optional<bool> master);
-      if (!ret) {
-        if (log) {
-        log->debugMsg(__PRETTY_FUNCTION__, "Send OASCK error");
-        }
-        return ret;
-      }
-
-      while (!terminate_transfer->load() && run_transfer) {
-
-      }
-      return ret;
-    }
-    template <typename T> requires TransType<T>
-    bool writeFile(bool delete_if_error = false) {
+    [[nodiscard]] bool writeFile(bool delete_if_error = false) noexcept {
       bool ret{ true };
       bool run_transfer{ true };
       TFTPOpeCode op_code;
@@ -1623,7 +1652,7 @@ namespace {
         ret = writeType<T>(&data.packet[data.getDataAddr().value()]);
       }
 
-      //  Delete recieved data
+      //  Delete received data
       if (terminate_transfer->load() and delete_if_error) {
         if (std::filesystem::exists(file_name)) {
           std::filesystem::remove(file_name);
@@ -1783,8 +1812,12 @@ namespace TFTPSrvLib {
       cv.wait(lck);
 
       while (!stop_worker.load() || !term_worker.load()) {
-        transfer.reset(new NetSock{ &file_mode, &term_worker });
-        ret = transfer->sendOACK(std::get<4>(file_mode), std::get<5>(file_mode), std::get<6>(file_mode));
+        transfer.reset(new NetSock{ &file_mode, &term_worker, log });
+        ret = transfer->sendOACK(std::get<6>(file_mode), 
+                                 std::get<4>(file_mode),
+                                 std::get<5>(file_mode),
+                                 std::get<7>(file_mode),
+                                 std::get<8>(file_mode));
         if (!ret) {
           if (log) {
             log->infoMsg("Thread ID" + thr_id, "Can't send parameters confirmation (OACK) message");
@@ -1806,10 +1839,24 @@ namespace TFTPSrvLib {
           else {
             request_params += "Mode - ASCII; ";
           }
-          request_params += "Port - " + std::to_string(std::get<3>(file_mode)) + "; ";
-          request_params += "Buffer size - " + std::to_string(std::get<4>(file_mode)) + "; ";
-          request_params += "Timeout - " + std::to_string(std::get<5>(file_mode)) + "; ";
-          request_params += "File size - " + std::to_string(std::get<6>(file_mode)) + "; ";
+          if (auto port{std::get<3>(file_mode)}; port) {
+            request_params += "Port - " + std::to_string(port.value()) + "; ";
+          }
+          if (auto buff_size{std::get<4>(file_mode)}; buff_size) {
+            request_params += "Buffer size - " + std::to_string(buff_size.value()) + "; ";
+          }
+          if (auto timeout{std::get<5>(file_mode)}; timeout) {
+            request_params += "Timeout - " + std::to_string(timeout.value()) + "; ";
+          }
+          if (auto fs_size{std::get<6>(file_mode)}; fs_size) {
+            request_params += "File size - " + std::to_string(fs_size.value()) + "; ";
+          }
+          if (auto mult_addr{std::get<7>(file_mode)};  mult_addr) {
+            request_params += "File size - " +  mult_addr.value() + "; ";
+          }
+          if (auto mult_port{std::get<8>(file_mode)}; mult_port) {
+            request_params += "File size - " + std::to_string(mult_port.value()) + "; ";
+          }
 
           log->debugMsg("Thread ID" + thr_id, " Started request with params - " + request_params);
         }
@@ -1834,10 +1881,9 @@ namespace TFTPSrvLib {
           log->debugMsg("Thread ID" + thr_id, "File transger " + std::get<0>(file_mode).string() + "finished");
         }
 
-        //  Reset optional parametrs
-        std::get<4>(file_mode) = 0;
-        std::get<5>(file_mode) = 0;
-        std::get<6>(file_mode) = 0;
+        //  Reset optional parameters
+        resetFileModeTup(file_mode, index_sequence<3,4,5,6,7,8>{});
+        
         setRes(thr_worcker);
         cv.wait(lck);
       }
@@ -1848,11 +1894,13 @@ namespace TFTPSrvLib {
       }
     }
     //  Client connections manager
-    void sessionMgr(void) {
+    void sessionMgr(void) noexcept {
       bool valread;
       ReadPacket data;
       fs::path requested_file;
       TFTPOpeCode request_code;
+      optional<size_t> fl_size;
+      ThrWorker current_worker;
 
       //  Getting transfer parameters from client request
       auto getSockParam = [](vector<ReqParam>* param_vec, OptExtent param_type) {
@@ -1868,7 +1916,7 @@ namespace TFTPSrvLib {
 
         transform(param_name, back_inserter(param_name), ::tolower);
         for (auto& param_set : *param_vec) {
-          if (!param_name.compare(param_set.first)) {
+          if (!param_name.compare(OptExtVal.at(param_set.first))) {
             param_val = param_set.second;
             break;
           }
@@ -1882,13 +1930,36 @@ namespace TFTPSrvLib {
       }
 
       while (!stop_worker.load() && !term_worker.load()) {
+        data.clear();
+        if (fl_size) {
+          fl_size.reset();
+        }
         valread = waitData(&data);
         if (!valread) {
+          continue;
+        }
+        //  Request analysis, and making data format, convenient for working
+        valread = data.makeFrameStruct();
+        if (!valread) {
+          ConstErrorPacket<BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BAD_FRAME_FORMAT_ERR);
+          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+          continue;
+        }
+        valread = data.getParams(cliaddr, 0);
+        if (!valread) {
+          ConstErrorPacket<BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BAD_FRAME_FORMAT_ERR);
+          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
           continue;
         }
 
         request_code = std::get<0>(data.packet_frame_structure);
 
+        if(request_code != TFTPOpeCode::TFTP_OPCODE_READ || request_code != TFTPOpeCode::TFTP_OPCODE_WRITE) {
+          ConstErrorPacket<WRONG_REQUEST_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&WRONG_REQUEST_ERR);
+          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+          continue;
+        }
+        
         //  Read request processing
         if (request_code == TFTPOpeCode::TFTP_OPCODE_READ) {
 
@@ -1900,106 +1971,158 @@ namespace TFTPSrvLib {
             sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
             continue;
           }
-          file_size = fs::file_size(requested_file);
+          fl_size = fs::file_size(requested_file);
           r_file.close();
-          if (data.req_params) {
-            checkParam(&data.req_params.value(), file_size);
-          }
-
-          //  Create parameters set to start transfer session
-          auto work{ getRes() };
-          std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
-          std::get<1>(*work.second) = true;
-          if (TFTPMode mode{ std::get<2>(data.packet_frame_structure).value() }; mode == TFTPMode::netascii) {
-            std::get<2>(*work.second) = false;
-          }
-          else {
-            std::get<2>(*work.second) = true;
-          }
-          std::get<3>(*work.second) = 0;
-
-          //  Check if additional parameters (RFC 1782) are present
-          if (data.req_params.has_value()) {
-            auto add_param_set{ data.req_params.value() };
-            if (auto param{ getSockParam(&add_param_set, OptExtent::blksize) }; param) {
-              std::get<4>(*work.second) = param;
-            }
-            else {
-              std::get<4>(*work.second) = buff_size;
-            }
-            if (auto param{ getSockParam(&add_param_set, OptExtent::timeout) }; param) {
-              std::get<5>(*work.second) = param;
-            }
-            else {
-              std::get<5>(*work.second) = timeout;
-            }
-            std::get<6>(*work.second) = 0;
-          }
-          else {
-            std::get<4>(*work.second) = buff_size;
-            std::get<5>(*work.second) = timeout;
-            std::get<6>(*work.second) = 0;
-          }
-          std::get<7>(*work.second) = cliaddr;
-          work.first->notify_one();
+          std::get<6>(data.trans_params) = fl_size.value();
+        }
+        
+        //  Check and correct (if necessary) if requested options are supported
+        valread = checkParam(&data.trans_params, fl_size);
+        if (!valread) {
+          ConstErrorPacket<BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BAD_FRAME_FORMAT_ERR);
+          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+          continue;
         }
 
-        //  Write request processing
-        if (request_code == TFTPOpeCode::TFTP_OPCODE_WRITE) {
-
-          //  Check if file already exists
-          requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
-          if (fs::exists(requested_file)) {
-            ConstErrorPacket<FILE_READ_ERR_SIZE> error(TFTPError::Access_Violation, (char*)&FILE_READ_ERR);
-            sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-            continue;
-          }
-          if (data.req_params) {
-            checkParam(&data.req_params.value(), file_size);
-          }
-
-          //  Create parameters set to start transfer session
-          auto work{ getRes() };
-          std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
-          std::get<1>(*work.second) = true;
-          if (TFTPMode mode{ std::get<2>(data.packet_frame_structure).value() }; mode == TFTPMode::netascii) {
-            std::get<2>(*work.second) = false;
-          }
-          else {
-            std::get<2>(*work.second) = true;
-          }
-          std::get<3>(*work.second) = 0;
-
-          //  Check if additional parameters (RFC 1782) are present
-          if (data.req_params.has_value()) {
-            if (auto param{ getSockParam(&data.req_params.value(), OptExtent::blksize) }; param) {
-              std::get<4>(*work.second) = param;
-            }
-            else {
-              std::get<4>(*work.second) = buff_size;
-            }
-            if (auto param{ getSockParam(&data.req_params.value(), OptExtent::timeout) }; param) {
-              std::get<5>(*work.second) = param;
-            }
-            else {
-              std::get<5>(*work.second) = timeout;
-            }
-            std::get<6>(*work.second) = 0;
-          }
-          else {
-            std::get<4>(*work.second) = buff_size;
-            std::get<5>(*work.second) = timeout;
-            std::get<6>(*work.second) = 0;
-          }
-          std::get<7>(*work.second) = cliaddr;
-          work.first->notify_one();
+        auto work{ getRes() };
+        if (std::holds_alternative<bool>(work)) {
+          ConstErrorPacket<BUSY_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BUSY_ERR);
+          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+          continue;
         }
+        current_worker = std::get<ThrWorker>(work);
+        std::get<0>(*current_worker.second) = std::get<0>(data.trans_params);
+        std::get<1>(*current_worker.second) = std::get<1>(data.trans_params);
+        std::get<2>(*current_worker.second) = std::get<2>(data.trans_params);
+        std::get<3>(*current_worker.second) = std::get<3>(data.trans_params).value();
+        std::get<4>(*current_worker.second) = std::get<4>(data.trans_params).value();
+        std::get<5>(*current_worker.second) = std::get<5>(data.trans_params).value();
+        std::get<6>(*current_worker.second) = std::get<6>(data.trans_params).value();
+        std::get<7>(*current_worker.second) = std::get<7>(data.trans_params).value();
+        std::get<8>(*current_worker.second) = std::get<8>(data.trans_params).value();
+        std::get<9>(*current_worker.second) = std::get<9>(data.trans_params);
+        current_worker.first->notify_one();
       }
+        //  Read request processing
+      //   if (request_code == TFTPOpeCode::TFTP_OPCODE_READ) {
+
+      //     //  Check if file exists and accessible
+      //     requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
+      //     std::ifstream r_file{ requested_file };
+      //     if (!r_file) {
+      //       ConstErrorPacket<FILE_READ_ERR_SIZE> error(TFTPError::Access_Violation, (char*)&FILE_READ_ERR);
+      //       sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+      //       continue;
+      //     }
+      //     fl_size = fs::file_size(requested_file);
+      //     r_file.close();
+      //     // if (data.req_params) {
+      //     //   checkParam(&data.req_params.value(), file_size);
+      //     // }
+      //     //  Create parameters set to start new transfer session
+      //     auto work{ getRes() };
+      //     std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
+      //     std::get<1>(*work.second) = true; 
+      //     if (TFTPMode mode{ std::get<2>(data.packet_frame_structure).value() }; mode == TFTPMode::netascii) {
+      //       std::get<2>(*work.second) = false;
+      //     }
+      //     else {
+      //       std::get<2>(*work.second) = true;
+      //     }
+      //     std::get<3>(*work.second) = 0;
+
+      //     //  Check if additional parameters (RFC 1782) are present
+      //     if (data.req_params.has_value()) {
+      //       auto add_param_set{ data.req_params.value() };
+      //       if (auto param{ getSockParam(&add_param_set, OptExtent::blksize) }; param) {
+      //         std::get<4>(*work.second) = param;
+      //       }
+      //       else {
+      //         std::get<4>(*work.second) = buff_size;
+      //       }
+      //       if (auto param{ getSockParam(&add_param_set, OptExtent::timeout) }; param) {
+      //         std::get<5>(*work.second) = param;
+      //       }
+      //       else {
+      //         std::get<5>(*work.second) = timeout;
+      //       }
+      //       std::get<6>(*work.second) = 0;
+      //     }
+      //     else {
+      //       std::get<4>(*work.second) = buff_size;
+      //       std::get<5>(*work.second) = timeout;
+      //       std::get<6>(*work.second) = 0;
+      //     }
+      //     std::get<7>(*work.second) = cliaddr;
+      //     work.first->notify_one();
+      //   }
+
+      //   //  Write request processing
+      //   if (request_code == TFTPOpeCode::TFTP_OPCODE_WRITE) {
+
+      //     //  Check if file already exists
+      //     requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
+      //     if (fs::exists(requested_file)) {
+      //       ConstErrorPacket<FILE_READ_ERR_SIZE> error(TFTPError::Access_Violation, (char*)&FILE_READ_ERR);
+      //       sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+      //       continue;
+      //     }
+      //     if (data.req_params) {
+      //       checkParam(&data.req_params.value(), file_size);
+      //     }
+
+      //     //  Create parameters set to start transfer session
+      //     auto work{ getRes() };
+      //     std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
+      //     std::get<1>(*work.second) = true;
+      //     if (TFTPMode mode{ std::get<2>(data.packet_frame_structure).value() }; mode == TFTPMode::netascii) {
+      //       std::get<2>(*work.second) = false;
+      //     }
+      //     else {
+      //       std::get<2>(*work.second) = true;
+      //     }
+      //     std::get<3>(*work.second) = 0;
+
+      //     //  Check if additional parameters (RFC 1782) are present
+      //     if (data.req_params.has_value()) {
+      //       if (auto param{ getSockParam(&data.req_params.value(), OptExtent::blksize) }; param) {
+      //         std::get<4>(*work.second) = param;
+      //       }
+      //       else {
+      //         std::get<4>(*work.second) = buff_size;
+      //       }
+      //       if (auto param{ getSockParam(&data.req_params.value(), OptExtent::timeout) }; param) {
+      //         std::get<5>(*work.second) = param;
+      //       }
+      //       else {
+      //         std::get<5>(*work.second) = timeout;
+      //       }
+      //       std::get<6>(*work.second) = 0;
+      //     }
+      //     else {
+      //       std::get<4>(*work.second) = buff_size;
+      //       std::get<5>(*work.second) = timeout;
+      //       std::get<6>(*work.second) = 0;
+      //     }
+      //     std::get<7>(*work.second) = cliaddr;
+      //     work.first->notify_one();
+      //   }
+      // }
       stop_server = false;
       if (log) {
         log->infoMsg("Main thread", "Session manager finished");
       }
     }
+
+    //  Reset FileMode tuple elements
+    template <typename T> void resetTuple(T& x) {
+      x.reset();
+    }
+    template <typename TupleT, std::size_t... Is>
+    void resetFileModeTup(TupleT& tp, std::index_sequence<Is...>) {
+      (resetTuple(std::get<Is>(tp)), ...);
+    }
+
   };
 }
 
