@@ -293,7 +293,7 @@ namespace {
   struct BasePacket {
     const size_t size{ packet_size };
     T packet[packet_size];
-    void clear(void) {
+    void clear() {
       if constexpr (std::is_same<T, char>::value) {
         memset(packet, '\0', packet_size);
       }
@@ -443,6 +443,8 @@ namespace {
       std::get<8>(trans_params).reset();
     }
     //  Sorting data and creating data map
+    //  TODO: Make exception handling!!!
+    //  TODO: Add IP address range check!!!
     [[nodiscard]] bool makeFrameStruct(size_t pack_size = PACKET_MAX_SIZE) noexcept {
       bool ret{ false };
       uint16_t opcode;
@@ -536,11 +538,11 @@ namespace {
             val_array.erase(remove_if(val_array.begin(), val_array.end(), isspace), val_array.end());
             transform(val_array.begin(), val_array.end(), val_array.begin(), ::tolower);
 
-            while ((pos = val_array.find(delim)) != string::npos) {
+            do {
+              pos = val_array.find(delim);
               multicast_val.push_back(val_array.substr(0, pos));
               val_array.erase(0, pos + delim.length());
-            }
-            
+            } while (pos != string::npos);
             multicast = make_tuple(multicast_val.at(0), (uint16_t) stoi(multicast_val.at(1)), (bool)stoi(multicast_val.at(2)));
             ++count_mode;  
             continue;
@@ -566,7 +568,7 @@ namespace {
 
         //Block number
         memcpy(blk_num, &packet[2], sizeof(uint16_t));
-        uint16_t block_number{std::stoi(blk_num)};
+        int block_number{std::stoi(blk_num)};
         std::get<0>(packet_frame_structure) = OptCode.at(opcode);
         std::get<1>(packet_frame_structure) = optional<TFTPError>{};
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -586,7 +588,7 @@ namespace {
 
         //Block number
         memcpy(blk_num, &packet[2], sizeof(uint16_t));
-        uint16_t block_number{std::stoi(blk_num)};
+        uint16_t block_number{(uint16_t) std::stoi(blk_num)};
         std::get<0>(packet_frame_structure) = OptCode.at(opcode);
         std::get<1>(packet_frame_structure) = optional<TFTPError>{};
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -606,7 +608,7 @@ namespace {
 
         //Error number
         memcpy(blk_num, &packet[2], sizeof(uint16_t));
-        uint16_t error_code{std::stoi(blk_num)};
+        uint16_t error_code{(uint16_t) std::stoi(blk_num)};
         std::get<0>(packet_frame_structure) = OptCode.at(opcode);
         std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -1903,27 +1905,27 @@ namespace TFTPSrvLib {
       ThrWorker current_worker;
 
       //  Getting transfer parameters from client request
-      auto getSockParam = [](vector<ReqParam>* param_vec, OptExtent param_type) {
-        size_t param_val{ 0 };
-        string param_name;
+      // auto getSockParam = [](vector<ReqParam>* param_vec, OptExtent param_type) {
+      //   size_t param_val{ 0 };
+      //   string param_name;
 
-        switch (param_type) {
-        case OptExtent::tsize: param_name = TSIZE_OPT_NAME; break;
-        case OptExtent::timeout: param_name = TIMEOUT_OPT_NAME; break;
-        case OptExtent::blksize: param_name = BLKSIZE_OPT_NAME; break;
-        default:;
-        }
+      //   switch (param_type) {
+      //   case OptExtent::tsize: param_name = TSIZE_OPT_NAME; break;
+      //   case OptExtent::timeout: param_name = TIMEOUT_OPT_NAME; break;
+      //   case OptExtent::blksize: param_name = BLKSIZE_OPT_NAME; break;
+      //   default:;
+      //   }
 
-        transform(param_name, back_inserter(param_name), ::tolower);
-        for (auto& param_set : *param_vec) {
-          if (!param_name.compare(OptExtVal.at(param_set.first))) {
-            param_val = param_set.second;
-            break;
-          }
-        }
+      //   transform(param_name, back_inserter(param_name), ::tolower);
+      //   for (auto& param_set : *param_vec) {
+      //     if (!param_name.compare(OptExtVal.at(param_set.first))) {
+      //       param_val = param_set.second;
+      //       break;
+      //     }
+      //   }
 
-        return param_val;
-      };
+      //   return param_val;
+      // };
 
       if (log) {
         log->infoMsg("Main thread", "Session manager started");
