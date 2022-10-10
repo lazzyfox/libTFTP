@@ -99,6 +99,7 @@ namespace {
   using namespace std::chrono;
 
   using std::string_view;
+  using std::stoi;
   using std::unordered_map;
   using std::tuple;
   using std::make_tuple;
@@ -456,6 +457,68 @@ namespace {
         host_code = ntohs(net_code);
         return host_code;
       };
+      //  Check if ip adders has valid format and belongs to correct multicast address range
+      auto checkIPRange = [](string addr) {
+        bool ret{false};
+        size_t pos;
+        string delim;
+        string tmp;
+        vector<string> ip_octets;
+        vector<uint8_t> ip_numbers;
+        //  Check IP version
+        if (auto pos{addr.find(".")}; pos != string::npos) {
+          delim = ".";
+        } else {
+          delim = ":";
+        }
+        //  Divide address to octets
+        do {
+          pos = addr.find(delim);
+          if (string curr_pos{addr.at(0)}; pos == 1 && !curr_pos.compare(delim)) {
+            continue;
+          }
+          ip_octets.emplace_back(addr.substr(0, pos));
+          addr.erase(0, pos + 1);
+        } while (pos != string::npos);
+        if (ip_octets.empty()) {
+          return ret;
+        }
+        //  Check if address has valid numbers inside
+        //  V4
+        if (delim == ".") {
+          if (ip_octets.size() != 4) {
+            return ret;
+          }
+          for (auto oct_count : ip_octets) {
+            tmp = oct_count.at(0);
+            if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 2) {
+              return ret;
+            }
+            tmp = oct_count.at(1);
+            if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+              return ret;
+            }
+            tmp = oct_count.at(2);
+            if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+              return ret;
+            }
+            if (auto digit {std::stoi(oct_count, &pos, 10)}; digit < 0 || digit > 255) {
+              return ret;
+            } else {
+              ip_numbers.push_back(digit);
+            }
+          }
+          //  Check IPV4 multicast address range
+          pos = ip_numbers.at(0);
+          if (pos >= 224 && pos <= 225 ) {
+            ret = true;
+          }
+          if (pos >= 232 && pos <= 239 ) {
+            ret = true;
+          }
+        }
+        return ret;
+      };
 
       auto reqRW = [this, pack_size](int opcode) ->bool {
         bool ret{ true };
@@ -621,13 +684,13 @@ namespace {
       const unordered_map<int, function<bool(int)>> req_data{ {1, reqRW}, {2, reqRW}, {3, getData}, {4, getACK}, {5, getERROR} };
       opcode = netToHost(packet);
       switch (opcode) {
-      case (int)TFTPOpeCode::TFTP_OPCODE_READ: ret = (pack_size < READ_MIN_SIZE) ? false : true; break;
-      case (int)TFTPOpeCode::TFTP_OPCODE_WRITE: ret = (pack_size < WRITE_MIN_SIZE) ? false : true; break;
-      case (int)TFTPOpeCode::TFTP_OPCODE_DATA: ret = (pack_size < DATA_MIN_SIZE) ? false : true; break;
-      case (int)TFTPOpeCode::TFTP_OPCODE_ACK: ret = (pack_size < ACK_MIN_SIZE) ? false : true; break;
-      case (int)TFTPOpeCode::TFTP_OPCODE_ERROR: ret = (pack_size < ERROR_MIN_SIZE) ? false : true; break;
-      case (int)TFTPOpeCode::TFTP_OPCODE_OACK: ret = (pack_size < OACK_MIN_SIZE) ? false : true; break;
-      default: ret = false;
+        case (int)TFTPOpeCode::TFTP_OPCODE_READ: ret = (pack_size < READ_MIN_SIZE) ? false : true; break;
+        case (int)TFTPOpeCode::TFTP_OPCODE_WRITE: ret = (pack_size < WRITE_MIN_SIZE) ? false : true; break;
+        case (int)TFTPOpeCode::TFTP_OPCODE_DATA: ret = (pack_size < DATA_MIN_SIZE) ? false : true; break;
+        case (int)TFTPOpeCode::TFTP_OPCODE_ACK: ret = (pack_size < ACK_MIN_SIZE) ? false : true; break;
+        case (int)TFTPOpeCode::TFTP_OPCODE_ERROR: ret = (pack_size < ERROR_MIN_SIZE) ? false : true; break;
+        case (int)TFTPOpeCode::TFTP_OPCODE_OACK: ret = (pack_size < OACK_MIN_SIZE) ? false : true; break;
+        default: ret = false;
       }
       if (!ret) {
         return ret;
