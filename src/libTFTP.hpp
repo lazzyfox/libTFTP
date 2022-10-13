@@ -73,6 +73,7 @@ SOFTWARE.
 #include <atomic>
 #include <algorithm>
 #include <ios>
+#include <regex>
 
 
 
@@ -457,7 +458,7 @@ namespace {
         host_code = ntohs(net_code);
         return host_code;
       };
-      //  Check if ip adders has valid format and belongs to correct multicast address range
+      //  Check if multicast ip adders has valid format and belongs to correct multicast address range
       auto checkIPRange = [](string addr) {
         bool ret{false};
         size_t pos;
@@ -517,10 +518,46 @@ namespace {
             ret = true;
           }
         }
+        //  V6 check
+        if (delim == ":") {
+          bool check_terminated {false};
+          uint8_t count {0};
+          const std::regex hex_check ("[0-9a-fA-F]*");
+          if (ip_octets.size() < 2 || ip_octets.size() > 8) {
+            return ret;
+          }
+          for (auto oct_count : ip_octets) {
+            if (count == 0) {
+              if (std::regex_match(oct_count, std::regex("[Ff]*"))) {
+                ++count;
+                continue;
+              } else {
+                check_terminated = true;
+                break;
+              }
+            }
+            if (count == 1) {
+              if (std::regex_match(oct_count, std::regex("[0-1]*"))) {
+                ++count;
+                continue;
+              } else {
+                check_terminated = true;
+                break;
+              }
+            }
+            if (!std::regex_match(oct_count, hex_check)) {
+              check_terminated = true;
+              break;
+            }
+          }
+          if (!check_terminated) {
+            ret = true;
+          }
+        }
         return ret;
       };
 
-      auto reqRW = [this, pack_size](int opcode) ->bool {
+      auto reqRW = [this, pack_size, checkIPRange](int opcode) ->bool {
         bool ret{ true };
         uint16_t count_begin{ 2 }, count_end{ 2 }, count_mode;
         string transf_mode, buffer, file_name;
@@ -606,7 +643,11 @@ namespace {
               multicast_val.push_back(val_array.substr(0, pos));
               val_array.erase(0, pos + delim.length());
             } while (pos != string::npos);
-            multicast = make_tuple(multicast_val.at(0), (uint16_t) stoi(multicast_val.at(1)), (bool)stoi(multicast_val.at(2)));
+            if (checkIPRange(multicast_val.at(0))) {
+              multicast = make_tuple(multicast_val.at(0), (uint16_t) stoi(multicast_val.at(1)), (bool)stoi(multicast_val.at(2)));
+            } else {
+              return false;
+            }
             ++count_mode;  
             continue;
           }
