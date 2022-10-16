@@ -495,13 +495,23 @@ namespace {
             if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 2) {
               return ret;
             }
-            tmp = oct_count.at(1);
-            if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
-              return ret;
+            if (oct_count.size() > 1) {
+              tmp = oct_count.at(1);
+              if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+                return ret;
+              }
             }
-            tmp = oct_count.at(2);
-            if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
-              return ret;
+            if (oct_count.size() > 2) {
+              tmp = oct_count.at(2);
+              if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+                return ret;
+              }
+            }
+            if (oct_count.size() > 3) {
+              tmp = oct_count.at(3);
+              if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+                return ret;
+              }
             }
             if (auto digit {std::stoi(oct_count, &pos, 10)}; digit < 0 || digit > 255) {
               return ret;
@@ -521,35 +531,16 @@ namespace {
         //  V6 check
         if (delim == ":") {
           bool check_terminated {false};
-          uint8_t count {0};
           const std::regex hex_check ("[0-9a-fA-F]*");
-          if (ip_octets.size() < 2 || ip_octets.size() > 8) {
+          if (ip_octets.size() < 1 || ip_octets.size() > 8) {
             return ret;
           }
-          for (auto oct_count : ip_octets) {
-            if (count == 0) {
-              if (std::regex_match(oct_count, std::regex("[Ff]*"))) {
-                ++count;
-                continue;
-              } else {
-                check_terminated = true;
-                break;
-              }
-            }
-            if (count == 1) {
-              if (std::regex_match(oct_count, std::regex("[0-1]*"))) {
-                ++count;
-                continue;
-              } else {
-                check_terminated = true;
-                break;
-              }
-            }
+          auto check_consistency = [&check_terminated, &hex_check] (string oct_count) {
             if (!std::regex_match(oct_count, hex_check)) {
               check_terminated = true;
-              break;
             }
-          }
+          };
+          ranges::for_each(ip_octets, check_consistency);
           if (!check_terminated) {
             ret = true;
           }
@@ -891,18 +882,21 @@ namespace {
       const uint16_t opcode {htons(6)};
       char draft_packet[PACKET_MAX_SIZE];
       uint16_t pos{0};
+      uint8_t param_size;
       string str_val;
       
       //  Converting parameters into packet sting format values 
-      auto makeParam = [&draft_packet, &pos, &str_val] (ReqParam *opt) {
+      auto makeParam = [&draft_packet, &pos, &str_val, &param_size] (ReqParam *opt) {
         str_val = OptExtVal.at(opt->first);
-        memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
-        pos = str_val.size() + 1;
+        param_size = str_val.size();
+        memcpy(&draft_packet[pos], str_val.c_str(), param_size);
+        pos += param_size;
         draft_packet[pos] = '\0';
         ++pos;
         str_val = std::to_string(opt->second);
-        memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
-        pos = str_val.size() + 1;
+        param_size = str_val.size();
+        memcpy(&draft_packet[pos], str_val.c_str(), param_size);
+        pos += param_size;
         draft_packet[pos] = '\0';
         ++pos;
       };
@@ -919,23 +913,23 @@ namespace {
       //  Multicast parameters set
       if (auto opt{std::get<3>(*val)}; opt) {
         memcpy(&draft_packet[pos], "multicast", 9);
-        pos += 10;
+        pos += 9;
         draft_packet[pos] = '\0';
+        ++pos;
         str_val = std::get<0>(opt.value());
         memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());  
-        pos = str_val.size() + 1;
+        pos += str_val.size();
         draft_packet[pos] = ',';
         ++pos;
         str_val = std::to_string(std::get<1>(opt.value()));
         memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
-        pos = str_val.size() + 1;
+        pos += str_val.size();
         draft_packet[pos] = ',';
         ++pos;
         str_val = std::to_string(std::get<2>(opt.value()));
         memcpy(&draft_packet[pos], str_val.c_str(), str_val.size());
-        pos = str_val.size() + 1;
+        pos += str_val.size();
         draft_packet[pos] = '\0';
-        ++pos;
       }
 
       packet_size = pos + 2;
