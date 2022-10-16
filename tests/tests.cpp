@@ -629,6 +629,28 @@ TEST(ReadPacket, ERR_PackNum) {
   EXPECT_EQ (last_data_address, 12);
 }
 
+TEST(ReadPacket, GetRersultNegotiationRead) {
+  ReadPacket data;
+  char req_data[] {'0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0'};
+  const string ex_file_name{"ak.txt"};
+  uint16_t net_code{htons(1)};
+  optional<size_t> port{};
+  sockaddr_storage addr_stor;
+  memcpy (req_data, &net_code, sizeof(net_code));
+  memcpy (data.packet, &req_data, sizeof(req_data));
+  auto make_struct {data.makeFrameStruct(sizeof(req_data))};
+  
+  ASSERT_TRUE (make_struct);
+  ASSERT_TRUE (data.req_params);
+  ASSERT_TRUE (data.getParams(addr_stor, port));
+  
+  string file_name {std::get<0> (data.trans_params).string()};
+
+  EXPECT_STREQ(file_name.c_str(), ex_file_name.c_str());
+  EXPECT_TRUE(std::get<1> (data.trans_params));
+  EXPECT_FALSE(std::get<2> (data.trans_params));
+  EXPECT_FALSE(std::get<3> (data.trans_params));
+}
 
 // Data transfer packet
 TEST (DataPacket, CharData) {
