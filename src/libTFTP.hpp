@@ -740,14 +740,14 @@ namespace {
       bool ret {true};
       fs::path path;
       bool read_file{false}, bin_operation {false};
-      optional<uint16_t> buffer, timeout, transfer_size, multicast_port;
+      optional<uint16_t> buffer{}, timeout{}, transfer_size{}, multicast_port{};
       optional<string> multicast_addr;
       optional<bool> multicast_master;
 
       try {
         //  Path from local root dir
         path = std::get<6> (packet_frame_structure).value();
-        if (auto op_code {std::get<0>(packet_frame_structure)}; op_code == TFTPOpeCode::TFTP_OPCODE_WRITE) {
+        if (auto op_code {std::get<0>(packet_frame_structure)}; op_code == TFTPOpeCode::TFTP_OPCODE_READ) {
           read_file = true;
         }
         if (auto transfer_mode {std::get<2>(packet_frame_structure)}; transfer_mode == TFTPMode::octet) {
@@ -935,7 +935,7 @@ namespace {
       packet_size = pos + 2;
       packet = new char[packet_size];
       memcpy(packet, &opcode, sizeof(opcode));
-      memcpy(packet+2, draft_packet, pos);
+      memcpy(packet+2, draft_packet, pos + 1);
     }
   };
 
