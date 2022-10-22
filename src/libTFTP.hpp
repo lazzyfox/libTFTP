@@ -1962,15 +1962,17 @@ namespace TFTPSrvLib {
         auto fl_mode = *std::get<1>(*work_count);
         file_lst->emplace_back(std::get<0>(fl_mode));
       }
-      if (active_lst->size() < active_workers.size()) {
-        idle_lst = make_unique<vector<std::thread::id>>();
-        auto find_idle = [&active_lst](const auto& thr){
-          auto thr_id = thr.get_id();
-          if (ranges::find(*active_lst, thr_id) == active_lst->end()) {
-            return thr_id;
-          } 
-        };
-        ranges::transform(active_workers, std::back_inserter(*idle_lst), find_idle);
+      if (active_lst) {
+        if (active_lst->size() < active_workers.size()) {
+          idle_lst = make_unique<vector<std::thread::id>>();
+          auto find_idle = [&active_lst](const auto& thr) {
+            auto thr_id = thr.get_id();
+            if (ranges::find(*active_lst, thr_id) == active_lst->end()) {
+              return thr_id;
+            } 
+          };
+          ranges::transform(active_workers, std::back_inserter(*idle_lst), find_idle);
+        }
       }
       auto timestamp = system_clock::now();
       return make_unique<SrvStat>(make_tuple(std::move(thread_lst), std::move(active_lst), std::move(idle_lst), std::move(file_lst), timestamp));
@@ -2062,7 +2064,7 @@ namespace TFTPSrvLib {
         log->debugMsg("Thread ID - " + thr_id, " Starting");
       }
 
-      ShareResPool<ThrWorker*, deque>::setRes(thr_worker.get());
+      
       cv.wait(lck);
 
       while (!stop_worker.load() || !term_worker.load() || !current_terminate.load()) {
