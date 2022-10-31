@@ -2001,21 +2001,23 @@ namespace MemoryManager {
       }
       bool setReverseOrder(void* const source, size_t size, const size_t blk_size) noexcept {
         bool ret{false};
-        size_t count{0};
-        while (size) {
-          if (size > blk_size) {
-            size -= blk_size;
-            memcpy(pool_point + count, source + size, blk_size);
-            count += blk_size;
-            used_size += blk_size;
+        void* local_buff = malloc(size);
+        size_t local_buff_size{size};
+        memcpy(local_buff, source, size);
+
+        while (local_buff_size) {
+          if (local_buff_size > blk_size) {
+            setRow(local_buff- blk_size, blk_size);
+            local_buff_size -= blk_size;
           } else {
-            auto res = memcpy(pool_point + count, source, size);
-            used_size += blk_size;
-            if (res) {
-              ret = true;
-            } 
+            setRow(local_buff- local_buff_size, local_buff_size);
+            local_buff_size = 0;
           }
         }
+        if (local_buff_size == 0) {
+          ret = true;
+        }
+        free (local_buff);
         return ret;
       }
       [[nodiscard]] size_t getTotalSize (void) noexcept {
