@@ -115,6 +115,7 @@ namespace {
   using std::shared_ptr;
   using std::make_shared;
   using std::deque;
+  using std::map;
   using std::jthread;
   using std::thread;
   using std::mutex;
@@ -182,6 +183,7 @@ namespace {
   enum class OptExtent : uint8_t { tsize, timeout, blksize, multicast };
 
   template <typename T> concept TransType = std::same_as <T, byte> || std::same_as <T, char>;
+  template <typename T, template<typename> typename Cont> concept ContConceptType = std::same_as <Cont<T>, vector<T>> || std::same_as <Cont<T>, deque<T>>;
 
   using FileMode = tuple<fs::path, // Read or write file path
     bool,  //  Read file operation - true for read
@@ -201,11 +203,6 @@ namespace {
     std::thread::id, //  Worker thread ID
     atomic<bool>*  //  Update transfer statistics
     >;
-  //  Statistics data for worker
-  using WorkStat = tuple<std::thread::id, //  Thread ID
-    time_point<system_clock>, // Timestamp
-    optional<fs::path> //  Working file name - if transfer is active
-    >;
   //  Server status
   using SrvStat = tuple<unique_ptr<vector<std::thread::id>>, //  All workers list
     unique_ptr<vector<std::thread::id>>,  //  Active workers list 
@@ -218,8 +215,9 @@ namespace {
     fs::path,  //  Transfer data
     time_point<system_clock>,  //  Transfer start time
     size_t,  //  Total size
-    size_t,  // Progress (received or transmitted)
-    time_point<system_clock>  //  Request time
+    size_t*,  // Progress (received or transmitted)
+    time_point<system_clock>*,  //  Request time
+    atomic<bool>* //  Statistics data update request
   >;
   enum class TFTPMode : uint8_t { netascii = 1, octet = 2, mail = 3 };
   enum class TFTPOpeCode : uint16_t {
@@ -1156,8 +1154,7 @@ namespace {
       }
       return ret;
     }
-    template <typename T>
-      requires TransType<T>
+    template <typename T> requires TransType<T>
     bool writeType(T* str) noexcept {
       bool ret{ true };
       write_file << str << std::flush;
@@ -1551,26 +1548,82 @@ namespace {
   //  Data transfer session manager (socket, file to disk IO)
   class NetSock final : public BaseNet, public FileIO {
   public:
+    atomic<bool> upd_stat {false};  //  Flag to update transfer statistics
+    size_t transfer_size{0};  //  Download/Upload data size
+    time_point<system_clock> timestamp;  // Transfer update statistic last date
+    
     //  Constructors for ordinary (point to point) data transfer
-    NetSock(size_t port, const fs::path file_name, const bool read, const bool bin, atomic<bool>* const terminate, atomic<bool>* const terminate_local)
-      : BaseNet{ port }, FileIO{ file_name, read, bin }, terminate_transfer{ terminate }, terminate_local{terminate_local} {}
-    NetSock(const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr, const std::filesystem::path file_name, const bool read, const bool bin, atomic<bool>* terminate, atomic<bool>* const terminate_local)
-      : BaseNet{ port, buff_size, timeout, file_size, cln_addr }, FileIO{ file_name, read, bin }, terminate_transfer{ terminate }, terminate_local{terminate_local} {}
-    NetSock(size_t port, const fs::path file_name, const bool read, const bool bin, atomic<bool>* terminate, atomic<bool>* const terminate_local, shared_ptr<Log> log)
-      : NetSock{ port, file_name, read, bin, terminate, terminate_local } {
-      this->log = log;
-    }
-    NetSock(const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr, const std::filesystem::path file_name, const bool read, const bool bin, atomic<bool>* const terminate, atomic<bool>* const terminate_local, const shared_ptr<Log> log)
-      : NetSock(port, buff_size, timeout, file_size, cln_addr, file_name, read, bin, terminate, terminate_local) {
-      this->log = log;
-    }
+    NetSock(size_t port,
+      const fs::path file_name,
+      const bool read,
+      const bool bin,
+      atomic<bool>* const terminate,
+      atomic<bool>* const terminate_local)
+      : BaseNet{ port },
+        FileIO{ file_name, read, bin }, 
+        terminate_transfer{ terminate },
+        terminate_local{terminate_local} {}
+    NetSock(const size_t port,
+      const size_t buff_size,
+      const size_t timeout,
+      const size_t file_size,
+      struct sockaddr_storage cln_addr,
+      const std::filesystem::path file_name,
+      const bool read,
+      const bool bin,
+      atomic<bool>* terminate,
+      atomic<bool>* const terminate_local)
+      : BaseNet{ port, buff_size, timeout, file_size, cln_addr },
+        FileIO{ file_name, read, bin },
+        terminate_transfer{ terminate },
+        terminate_local{terminate_local} {}
+    NetSock(size_t port,
+      const fs::path file_name,
+      const bool read,
+      const bool bin,
+      atomic<bool>* terminate,
+      atomic<bool>* const terminate_local,
+      shared_ptr<Log> log)
+      : NetSock{ port, file_name, read, bin, terminate, terminate_local} {
+          this->log = log;
+        }
+    NetSock(const size_t port,
+      const size_t buff_size,
+      const size_t timeout,
+      const size_t file_size,
+      struct sockaddr_storage cln_addr,
+      const std::filesystem::path file_name,
+      const bool read,
+      const bool bin,
+      atomic<bool>* const terminate,
+      atomic<bool>* const terminate_local,
+      const shared_ptr<Log> log)
+      : NetSock(port,
+        buff_size,
+        timeout,
+        file_size,
+        cln_addr,
+        file_name,
+        read,
+        bin,
+        terminate,
+        terminate_local) {
+          this->log = log;
+        }
     //  Multicast constructor
-    NetSock(const FileMode* const mode, atomic<bool>* const terminate, atomic<bool>* const terminate_local, const shared_ptr<Log> log)
-       : BaseNet {mode}, FileIO {mode}, terminate_transfer{ terminate }, terminate_local{terminate_local}, log{log} {
-      if (std::get<7>(*mode)) {
-        mult_transfer = make_unique<BaseNet>(mode);
-      }
-    }
+    NetSock(const FileMode* const mode,
+     atomic<bool>* const terminate,
+     atomic<bool>* const terminate_local,
+     const shared_ptr<Log> log)
+       : BaseNet {mode},
+         FileIO {mode},
+         terminate_transfer{ terminate },
+         terminate_local{terminate_local},
+         log{log} {
+           if (std::get<7>(*mode)) {
+             mult_transfer = make_unique<BaseNet>(mode);
+           }
+         }
 
     ~NetSock() = default;
 
@@ -1612,6 +1665,7 @@ namespace {
       while (!terminate_transfer->load() && !terminate_local->load() && run_transfer) {
         //  Read data from disk
         read_result = readType<T>(&data);
+        
 
         if (!read_result) {
           ConstErrorPacket<FILE_READ_ERR_SIZE> error(TFTPError::Access_Violation, (char*)&FILE_READ_ERR);
@@ -1620,6 +1674,13 @@ namespace {
             log->debugMsg(__PRETTY_FUNCTION__, "Read operation failed");
           }
           return false;
+        }
+
+        //  Upd transfer statistics
+        transfer_size += read_result;
+        if (upd_stat.load()) {
+          timestamp = system_clock::now();
+          upd_stat = false;
         }
 
         //  Check if file is finished and terminate transfer
@@ -1753,6 +1814,13 @@ namespace {
         sendto(sock_id, &ack, PACKET_ACK_SIZE, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
         //ret = write(&data.packet[data.getDataAddr().value()], data.getDataSize().value());
         ret = writeType<T>(&data.packet[data.getDataAddr().value()]);
+        
+        //  Upd transfer statistics
+        transfer_size += data.getDataSize().value();
+        if (upd_stat.load()) {
+          timestamp = system_clock::now();
+          upd_stat = false;
+        }
       }
 
       //  Delete received data
@@ -1763,11 +1831,402 @@ namespace {
       }
       return ret;
     }
+  
+  
   private:
     atomic<bool>* terminate_transfer, *terminate_local;
     ACKPacket ack{};
     shared_ptr<Log> log;
     unique_ptr<BaseNet> mult_transfer;
+  };
+}
+
+namespace MemoryManager {
+  //  Pool allocator
+  class PoolAllocator {
+    public :
+      explicit PoolAllocator(const size_t pool_size) : total_size{pool_size} {
+        pool_point = malloc(pool_size);
+        pool_front = pool_point;
+      }
+      PoolAllocator(const size_t blk_size, const size_t blk_num) 
+        : total_size {blk_size * blk_num}, block_size{make_unique<size_t>(blk_size)}, blocks_number {make_unique<size_t>(blk_num)} {
+          pool_point = malloc(total_size);
+          pool_front = pool_point;
+      }
+      ~PoolAllocator() {
+        if (pool_point) {
+          free(pool_point);
+        }
+      }
+
+      PoolAllocator(const PoolAllocator&) = delete;
+      PoolAllocator(const PoolAllocator&&) = delete;
+      PoolAllocator& operator = (const PoolAllocator&) = delete;
+      PoolAllocator& operator = (const PoolAllocator&&) = delete;
+      
+      bool setRow(void* const data, const size_t size) noexcept {
+        bool ret {false};
+        if (!data || size < 0) {
+          return ret;
+        }
+        auto free_space = total_size - used_size;
+        if (size > free_space) {
+          return ret;
+        }
+        auto res = memcpy(pool_point + used_size, data, size);
+        if (!res) {
+          return ret;
+        } else {
+          ret = true;
+        }
+        used_size += size;
+        return ret;
+      }
+      bool setBlk(void* const data, const size_t blk_num) noexcept {
+        bool ret{false};
+        if (!data) {
+          return ret;
+        }
+        if (!block_size || !blocks_number) {
+          return ret;
+        }
+        auto request_size{*block_size * blk_num};
+        if (auto free_space{total_size - used_size}; request_size > free_space) {
+          return ret;
+        }
+        auto res = memcpy(pool_point + used_size, data, request_size);
+        if (!res) {
+          return ret;
+        } else {
+          ret = true;
+        }
+        used_size += request_size;
+        *blocks_number += blk_num;
+        return ret;
+      }
+      template <typename T> requires TransType<T>
+      bool setDat(ReadFileData<T>* const data) noexcept {
+        bool ret{false};
+        if (!data) {
+          return ret;
+        }
+        if (auto free_space{total_size - used_size}; data->size > free_space) {
+          return ret;
+        }
+        auto res = memcpy(pool_point + used_size, data->data, data->size);
+        if (!res) {
+          return ret;
+        } else {
+          ret = true;
+        }
+        used_size += data->size;
+        return ret;
+      }
+      bool getRow (void* const data, const size_t size) noexcept {
+        bool ret {false};
+        if (!data) {
+          return ret;
+        }
+        if (size > used_size) {
+          return ret;
+        }
+        auto request_point{pool_point + (used_size- size)};
+        auto res = memcpy(data, request_point, size);
+        if (!res) {
+          return ret;
+        } else {
+          ret = true;
+        }
+        used_size -= size;
+        return ret;
+      }
+      bool getBlk(void* const data, const size_t blk_num) noexcept {
+        bool ret {false};
+        if (!data || blk_num < 1) {
+          return ret;
+        }
+        if (!blocks_number || !blocks_number) {
+          return ret;
+        }
+        auto request_size{*block_size * blk_num};
+        if ( request_size > used_size) {
+          return ret;
+        }
+        auto request_point {pool_point + (used_size - request_size)};
+        auto res = memcpy(data, request_point, request_size);
+        if (!res) {
+          return ret;
+        } else {
+          ret = true;
+        }
+        *blocks_number -= blk_num;
+        used_size -= request_size;
+        return ret;
+      }
+      template <typename T> requires TransType<T>
+      bool getDat(ReadFileData<T>* const data) noexcept {
+        bool ret {false};
+        if (!data) {
+          return ret;
+        }
+        if (data->size > used_size) {
+          return ret;
+        }
+        auto request_point{pool_point + (used_size - data->size)};
+        auto res = memcpy(data->data, request_point, data->size);
+        if (!res) {
+          return ret;
+        } else {
+          ret = true;
+        }
+        used_size -= data->size;
+        pool_point = request_point;
+        return ret;
+      }
+      void clear (void) noexcept {
+        used_size = 0;
+      }
+      bool reSet(const size_t blk_num, const size_t blk_size) {
+        bool ret{false};
+        auto req_size {blk_num * blk_size};
+        if (req_size > total_size) {
+          return ret;
+        }
+        if (!block_size || !blocks_number) {
+          return ret;
+        }
+        *block_size = blk_size;
+        *blocks_number = blk_num;
+      }
+      bool setReverseOrder(void* const source, size_t size, const size_t blk_size) noexcept {
+        bool ret{false};
+        size_t count{0};
+        while (size) {
+          if (size > blk_size) {
+            size -= blk_size;
+            memcpy(pool_point + count, source + size, blk_size);
+            count += blk_size;
+            used_size += blk_size;
+          } else {
+            auto res = memcpy(pool_point + count, source, size);
+            used_size += blk_size;
+            if (res) {
+              ret = true;
+            } 
+          }
+        }
+        return ret;
+      }
+      [[nodiscard]] size_t getTotalSize (void) noexcept {
+        return total_size;
+      }
+      [[nodiscard]] size_t getUsedSize (void) noexcept {
+        return used_size;
+      }
+    protected :
+      size_t total_size;
+      size_t used_size{0};
+      unique_ptr<size_t> block_size;
+      unique_ptr<size_t> blocks_number;
+      void* pool_point{nullptr};
+      void* pool_front{nullptr};
+  };
+  //  Buffer for IO/Net operations
+  class IOBuff {
+    private :
+      unique_ptr<PoolAllocator> first, second;
+      unique_ptr<FileIO> file;
+      size_t blk_size {0};
+      size_t buff_size{0};
+      size_t file_size{0};
+      unique_ptr<jthread> dskIOThr;
+      mutex dsk_mut;
+      std::unique_lock<std::mutex> wait_cash_operation;
+      condition_variable continue_io;
+      atomic<bool> stop_io{false};
+      PoolAllocator *active_buff, *passive_buff;
+
+
+      //  Write buffers cashed data to file (from passive one)
+      template <typename T> requires TransType<T>
+      void toDskThr(std::stop_token stop_token) {
+        T buff_data[buff_size];
+        wait_cash_operation = std::unique_lock<std::mutex>(dsk_mut, std::defer_lock);
+        continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
+        while (stop_token.stop_requested()) {
+          wait_cash_operation.lock();
+          if (auto current_dat{passive_buff->getUsedSize()}; current_dat < buff_size) {
+            T last_data[current_dat];
+            passive_buff->getRow(&last_data, current_dat);
+            file->writeType<T>(last_data);
+          } else {
+            passive_buff->getRow(&buff_data, buff_size);
+            file->writeType<T>(buff_data);
+          }
+          continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
+        }
+      }
+      //  Fill cash buffer (in reverse order) by requested file data
+      template <typename T> requires TransType<T>
+      void fromDskThr(std::stop_token stop_token) {
+        size_t data_rest{file_size};
+        ReadFileData<T> read_buff(buff_size);
+        wait_cash_operation = std::unique_lock<std::mutex>(dsk_mut, std::defer_lock);
+        //wait_cash_operation.unlock();
+        while (!stop_token.stop_requested()) {
+          data_rest -= buff_size;
+          if(data_rest < buff_size) {
+            ReadFileData<T> read_rest(data_rest);
+            passive_buff->setReverseOrder(read_rest.data, read_rest.size, blk_size);
+          } else {
+            file->readType<T>(&read_buff);
+            passive_buff->setReverseOrder(read_buff.data, read_buff.size, blk_size);
+          }
+          wait_cash_operation.lock();
+          continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
+        }
+      }
+      void swapBuff(void) {
+        auto tmp = passive_buff;
+        passive_buff = active_buff;
+        active_buff = tmp;
+      }
+    public :
+      explicit IOBuff (const size_t buff_size) 
+      : first{make_unique<PoolAllocator>(buff_size)}, second{make_unique<PoolAllocator>(buff_size)}, buff_size{buff_size}{}
+      IOBuff (const size_t blk_size, const size_t blk_num) 
+      : first{make_unique<PoolAllocator>(blk_size, blk_num)}, second{make_unique<PoolAllocator>(blk_size, blk_num)} {
+        buff_size = blk_size * blk_num;
+        }
+
+      IOBuff(const IOBuff&) = delete;
+      IOBuff(const IOBuff&&) = delete;
+      IOBuff& operator = (const IOBuff&) = delete;
+      IOBuff& operator = (const IOBuff&&) = delete;
+      
+      void reSetSession(const FileMode* const mode) {
+        if (!file) {
+          file = make_unique<FileIO>(mode);
+        } else {
+          file.reset(new FileIO(mode));
+        }
+        if (std::get<4>(*mode)) {
+          this->blk_size = std::get<4>(*mode).value();
+        } else {
+          this->blk_size  = 512;
+        }
+        active_buff = first.get();
+        passive_buff = second.get();
+        
+        //  Read mode - read to buffer from file
+        if (std::get<1>(*mode)) {
+          file_size = fs::file_size(std::get<0>(*mode));
+          if (std::get<2>(*mode)) {
+            if (!dskIOThr) {
+              dskIOThr = make_unique<jthread> (&IOBuff::fromDskThr<byte>, this);
+            } else {
+              dskIOThr.reset (new jthread(&IOBuff::fromDskThr<byte>, this));
+            }
+          } else {
+            if (!dskIOThr) {
+              dskIOThr = make_unique<jthread> (&IOBuff::fromDskThr<char>, this);
+            } else {
+              dskIOThr.reset (new jthread(&IOBuff::fromDskThr<char>, this));
+            }
+          }
+          while (!wait_cash_operation.owns_lock()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+          }
+          swapBuff();
+        } else {  //  Write mode - write from buffer to file
+          file_size = std::get<6>(*mode).value();
+          if (std::get<2>(*mode)) {
+            if (!dskIOThr) {
+              dskIOThr = make_unique<jthread> (&IOBuff::toDskThr<byte>, this);
+            } else {
+              dskIOThr.reset (new jthread(&IOBuff::toDskThr<byte>, this));
+            }
+          } else {
+            if (!dskIOThr) {
+              dskIOThr = make_unique<jthread> (&IOBuff::toDskThr<char>, this);
+            } else {
+              dskIOThr.reset (new jthread(&IOBuff::toDskThr<char>, this));
+            }
+          }
+        }
+      }
+      template <typename T> requires TransType<T>
+      [[nodiscard]] bool readData(ReadFileData<T>* const data) noexcept {
+        bool ret{false};
+        if (!data) {
+          return ret;
+        }
+        ret = active_buff->getDat(data);
+        if (!ret) {
+          return ret;
+        }
+        if (!active_buff->getUsedSize()) {
+          swapBuff();
+          continue_io.notify_one();
+          ret = true;
+        }
+        return ret;
+      }
+      template <typename T> requires TransType<T>
+      [[nodiscard]] bool writeData(ReadFileData<T>* const data) noexcept {
+        bool ret{false};
+        if (!data) {
+          return ret;
+        }
+        ret = active_buff->setDat(data);
+        if (!ret) {
+          return ret;
+        }
+        if (!active_buff->getUsedSize() >= buff_size) {
+          swapBuff();
+          continue_io.notify_one();
+          ret = true;
+        }
+        return ret;
+      }
+  };
+  //  Buffer manager class - creating buffers (IOBuff) for everyone worker and assign each of them to by request
+  class BuffMan {
+    public :
+      BuffMan(const size_t buff_quantity, const size_t buff_size) : buff_quantity{buff_quantity} {
+        buff_set = make_unique<vector<shared_ptr<IOBuff>>>();
+         workers_set = make_unique<map<thread::id, shared_ptr<IOBuff>>>();
+        for (size_t count = 0; count < buff_quantity; ++count) {
+          buff_set->emplace_back(make_shared<IOBuff>(buff_size));
+        }
+      }
+      BuffMan(const size_t buff_quantity, const size_t buff_blk_size, const size_t buff_blk_number) 
+      : BuffMan{buff_quantity, buff_blk_size * buff_blk_number}{}
+
+      [[nodiscard]] variant<shared_ptr<IOBuff>, bool> getBuffer(const thread::id id) noexcept {
+        variant<shared_ptr<IOBuff>, bool> ret{false};
+        lock_guard<mutex> lck(assign_lock);
+        if (workers_set->size() >= buff_quantity) {
+          return ret;
+        }
+        if (workers_set->find(id) != workers_set->end()) {
+          return ret;
+        };
+        for (auto vec : *buff_set) {
+          if (ranges::find_if(*workers_set, [vec](auto work_id){ if (work_id.second == vec) return true;}) == workers_set->end()){
+            workers_set->emplace(make_pair(id, vec));
+            ret = vec;
+            break;
+          }
+        }
+        return ret;
+      }
+    private :
+      const size_t buff_quantity;
+      unique_ptr<vector<shared_ptr<IOBuff>>> buff_set;
+      unique_ptr<map<thread::id, shared_ptr<IOBuff>>> workers_set;
+      mutex assign_lock;
   };
 }
 
@@ -1797,6 +2256,11 @@ namespace TFTPSrvLib {
       this->log = log;
     }
 
+    TFTPSrv(const TFTPSrv&) = delete;
+    TFTPSrv(const TFTPSrv&&) = delete;
+    TFTPSrv& operator = (const TFTPSrv&) = delete;
+    TFTPSrv& operator = (const TFTPSrv&&) = delete;
+    
     //  Starting server - running up session manager to wait incoming clients connections
     bool srvStart(void) noexcept {
       bool ret{ false };
@@ -1944,13 +2408,12 @@ namespace TFTPSrvLib {
       return ret;
     }
     //  Get current server status - total number of workers, running workers number, running workers file names
-    //  TODO: change all code!!!
-    unique_ptr<SrvStat> srvStatus(void) {
+    [[nodiscard]] unique_ptr<SrvStat> srvStatus(void) noexcept {
       auto thread_lst {make_unique<vector<std::thread::id>>()};
       unique_ptr<vector<std::thread::id>> active_lst, idle_lst;
       unique_ptr<vector<fs::path>> file_lst;
       ranges::transform(active_workers, std::back_inserter(*thread_lst), [](const auto &thr){return thr.get_id();});
-      auto sz{ShareResPool<ThrWorker*, deque>::thr_pool->size()};
+
       for (const auto& work_count : *ShareResPool<ThrWorker*, deque>::thr_pool) {
         if (!active_lst) {
           active_lst = make_unique<vector<std::thread::id>>();
@@ -1977,11 +2440,9 @@ namespace TFTPSrvLib {
       auto timestamp = system_clock::now();
       return make_unique<SrvStat>(make_tuple(std::move(thread_lst), std::move(active_lst), std::move(idle_lst), std::move(file_lst), timestamp));
     }
-    //  Get information about selected worker
-    //  TODO: change all code!!!
-    unique_ptr<WorkStat> procStat(std::thread::id id) {
-      unique_ptr<WorkStat> ret;
-      optional<fs::path> path;
+    // //  Get information about selected worker
+    [[nodiscard]] TransferState* procStat(std::thread::id id) noexcept{
+      TransferState* ret{nullptr};
       auto thrCompare = [id] (const auto& thr) {
         if (thr.get_id() == id) {
           return true;
@@ -1989,11 +2450,11 @@ namespace TFTPSrvLib {
           return false;
         }
       };
-      auto findActiveID = [id, &path] (const auto worker) {
+      auto findActiveID = [id, &ret] (const auto worker) {
         auto work_id = std::get<std::thread::id>(*worker);
         if (work_id == id) {
-          auto file_mode = std::get<1>(*worker);
-          path = std::get<0>(*file_mode);
+          *std::get<atomic<bool>*> (*worker)= true;
+          ret = worker;
           return true;
         }
         return false;
@@ -2001,8 +2462,8 @@ namespace TFTPSrvLib {
       if (auto res = ranges::find_if(active_workers, thrCompare); res == active_workers.end()) {
         return ret;
       }
-      ranges::for_each(*ShareResPool<ThrWorker*, deque>::thr_pool, findActiveID);
-      return make_unique<WorkStat>(make_tuple(id, system_clock::now(), path));
+      ranges::for_each(*ShareResPool<TransferState*, vector>::thr_pool, findActiveID);
+      return ret;
     }
 
   private:
@@ -2026,7 +2487,7 @@ namespace TFTPSrvLib {
           ret = false;
           active_workers.pop_back();
           if (log) {
-            log->debugMsg(__PRETTY_FUNCTION__, "One thread coud not be created");
+            log->debugMsg(__PRETTY_FUNCTION__, "One thread could not be created");
           }
         }
         else {
@@ -2050,7 +2511,8 @@ namespace TFTPSrvLib {
       unique_lock<std::mutex> lck(mtx);
       FileMode file_mode;
       auto thr_worker = make_unique<ThrWorker>(make_tuple(&cv, &file_mode, &current_terminate, std::this_thread::get_id(), &upd_stat)); 
-      auto thr_state = make_unique<TransferState>(make_tuple(std::this_thread::get_id(), base_dir, system_clock::now(), 0, 0, system_clock::now()));
+      auto thr_state{make_unique<TransferState>()};
+      //auto thr_state = make_unique<TransferState>(make_tuple(std::this_thread::get_id(), base_dir, system_clock::now(), 0, nullptr, nullptr));
       unique_ptr<NetSock> transfer{};
       std::ostringstream thr_convert;
       thr_convert << std::this_thread::get_id();
@@ -2063,8 +2525,8 @@ namespace TFTPSrvLib {
       if (log) {
         log->debugMsg("Thread ID - " + thr_id, " Starting");
       }
-
-      
+      std::get<std::thread::id>(*thr_state) = std::this_thread::get_id();
+      ShareResPool<TransferState*, vector>::setRes(thr_state.get());
       cv.wait(lck);
 
       while (!stop_worker.load() || !term_worker.load() || !current_terminate.load()) {
@@ -2135,13 +2597,16 @@ namespace TFTPSrvLib {
         //  Creating transfer statistics
         std::get<fs::path>(*thr_state) = std::get<fs::path>(file_mode);
         std::get<2>(*thr_state) = system_clock::now();
+        std::get<size_t*>(*thr_state) = &transfer->transfer_size;
+        std::get<time_point<system_clock>*>(*thr_state) = &transfer->timestamp;
+
         if (auto fs_size{std::get<6>(file_mode)}; fs_size) {
           std::get<3>(*thr_state) = fs_size.value();
         } else {
           std::get<3>(*thr_state) = fs::file_size(std::get<fs::path>(file_mode));
         }
-        ShareResPool<TransferState*, vector>::setRes(thr_state.get());
 
+    
         //  Start transfer
         if (auto read_mode{ std::get<1>(file_mode) }; read_mode) {
           if (std::get<2>(file_mode)) {

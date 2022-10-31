@@ -5,10 +5,9 @@
 #include <iostream>
 
 #include "../src/libTFTP.hpp"
-
+using namespace MemoryManager;
 //  Data type check
 char test[] = { 't', 'e', 's', 't' };
-char read_RQ[] = { '\0', '1', 'a', 'k','.', 't', 'x', 't' };
 
 //  ReadFile Data
 TEST(ReadData, CharData) {
@@ -809,10 +808,7 @@ TEST(SendData, FullTest_Char) {
 //  OACK packet
 TEST(OACK, TypicalRequest) {
   const uint16_t ex_op_code{ 6 };
-  uint16_t net_op_code, net_val;
-  const uint16_t ex_size_val{ 10 };
-  const uint16_t ex_blk_val{ 512 };
-  const uint16_t ex_timeout_val{ 6 };
+  uint16_t net_op_code;
   const char zero{ '\0' };
   optional<ReqParam> t_size{ make_pair(OptExtent::tsize, (uint16_t)10) }; // Size = 9
   optional<ReqParam> blk_size{ make_pair(OptExtent::blksize, (uint16_t)512) }; // Size = 11
@@ -880,8 +876,7 @@ TEST(OACK, TypicalRequest) {
 
 TEST(OACK, RequestTSize) {
   const uint16_t ex_op_code{ 6 };
-  uint16_t net_op_code, net_val;
-  const uint16_t ex_size_val{ 10 };
+  uint16_t net_op_code;
 
   const char zero{ '\0' };
   optional<ReqParam> t_size{ make_pair(OptExtent::tsize, (uint16_t)10) }; // Size = 9
@@ -953,7 +948,6 @@ TEST(OACK, RequestBlkSize) {
 TEST(OACK, RequestTOut) {
   const uint16_t ex_op_code{ 6 };
   uint16_t net_op_code;
-  const uint16_t ex_timeout_val{ 6 };
   const char zero{ '\0' };
   optional<ReqParam> t_size{};
   optional<ReqParam> blk_size{};
@@ -989,8 +983,6 @@ TEST(OACK, RequestTOut) {
 TEST(OACK, TypicalTSizeBlkSize) {
   const uint16_t ex_op_code{ 6 };
   uint16_t net_op_code;
-  const uint16_t ex_size_val{ 10 };
-  const uint16_t ex_blk_val{ 512 };
   const char zero{ '\0' };
   optional<ReqParam> t_size{ make_pair(OptExtent::tsize, (uint16_t)10) }; // Size = 9
   optional<ReqParam> blk_size{ make_pair(OptExtent::blksize, (uint16_t)512) }; // Size = 11
@@ -1041,9 +1033,7 @@ TEST(OACK, TypicalTSizeBlkSize) {
 
 TEST(OACK, RequestTSizeTOut) {
   const uint16_t ex_op_code{ 6 };
-  uint16_t net_op_code, net_val;
-  const uint16_t ex_size_val{ 10 };
-  const uint16_t ex_timeout_val{ 6 };
+  uint16_t net_op_code;
   const char zero{ '\0' };
   optional<ReqParam> t_size{ make_pair(OptExtent::tsize, (uint16_t)10) }; // Size = 9
   optional<ReqParam> blk_size{};
@@ -1094,9 +1084,7 @@ TEST(OACK, RequestTSizeTOut) {
 
 TEST(OACK, TypicalBlkSizeTOut) {
   const uint16_t ex_op_code{ 6 };
-  uint16_t net_op_code, net_val;
-  const uint16_t ex_blk_val{ 512 };
-  const uint16_t ex_timeout_val{ 6 };
+  uint16_t net_op_code;
   const char zero{ '\0' };
   optional<ReqParam> t_size{};
   optional<ReqParam> blk_size{ make_pair(OptExtent::blksize, (uint16_t)512) }; // Size = 11
@@ -1147,10 +1135,7 @@ TEST(OACK, TypicalBlkSizeTOut) {
 
 TEST(OACK, MulticastRequest_V4) {
   const uint16_t ex_op_code{ 6 };
-  uint16_t net_op_code, net_val;
-  const uint16_t ex_size_val{ 10 };
-  const uint16_t ex_blk_val{ 512 };
-  const uint16_t ex_timeout_val{ 6 };
+  uint16_t net_op_code;
   const char zero{ '\0' };
   optional<ReqParam> t_size{ make_pair(OptExtent::tsize, (uint16_t)10) }; // Size = 9
   optional<ReqParam> blk_size{ make_pair(OptExtent::blksize, (uint16_t)512) }; // Size = 11
@@ -1159,10 +1144,6 @@ TEST(OACK, MulticastRequest_V4) {
   char pack_t_size[5];
   char pack_blk_size[7];
   char pack_t_out[7];
-  char mult_addr[9];
-  char mult_port[4];
-  char delim_1[1];
-  char delim_2[1];
   const string str_size{ "tsize" };
   const string str_blk{ "blksize" };
   const string str_timeout{ "timeout" };
@@ -1244,10 +1225,7 @@ TEST(OACK, MulticastRequest_V4) {
 
 TEST(OACK, MulticastRequest_V6) {
   const uint16_t ex_op_code{ 6 };
-  uint16_t net_op_code, net_val;
-  const uint16_t ex_size_val{ 10 };
-  const uint16_t ex_blk_val{ 512 };
-  const uint16_t ex_timeout_val{ 6 };
+  uint16_t net_op_code;
   const char zero{ '\0' };
   optional<ReqParam> t_size{ make_pair(OptExtent::tsize, (uint16_t)10) }; // Size = 9
   optional<ReqParam> blk_size{ make_pair(OptExtent::blksize, (uint16_t)512) }; // Size = 11
@@ -1256,10 +1234,7 @@ TEST(OACK, MulticastRequest_V6) {
   char pack_t_size[5];
   char pack_blk_size[7];
   char pack_t_out[7];
-  char mult_addr[9];
-  char mult_port[4];
-  char delim_1[1];
-  char delim_2[1];
+  
   const string  str_size{ "tsize" };
   const string  str_blk{ "blksize" };
   const string  str_timeout{ "timeout" };
@@ -1339,6 +1314,99 @@ TEST(OACK, MulticastRequest_V6) {
   EXPECT_EQ(pack_mult_delim_3, mult_delim);
   EXPECT_EQ(pack_mult_master, ex_mult_master);
   EXPECT_EQ(pack_mult_delim_4, zero);
+}
+
+//  Memory management (cashing) testing
+// Set data tests
+TEST(PoolAllocator, setRow_str_check) { 
+  char test_str[]{'a','b','c','d'};
+  const string str{test_str, 4};
+  const auto test_size{sizeof(test_str)};
+  PoolAllocator pool{4};
+  ASSERT_EQ(pool.getTotalSize(), test_size);
+  ASSERT_FALSE(pool.getUsedSize());
+  pool.setRow(test_str, test_size);
+  ASSERT_EQ(pool.getUsedSize(), test_size);
+  char ex_str[test_size];
+  EXPECT_TRUE(pool.getRow(ex_str, test_size));
+  const string res_str{ex_str};
+  EXPECT_STREQ (res_str.c_str(), str.c_str());  
+}
+
+TEST(PoolAllocator, setRow_byte_check) { 
+  char test_str1[]{'a','b'};
+  char test_str2[]{'c','d'};
+  string str{"abcd"};
+  const auto test_size{sizeof(test_str1)};
+  PoolAllocator pool{4};
+  ASSERT_EQ(pool.getTotalSize(), 4);
+  ASSERT_FALSE(pool.getUsedSize());
+  pool.setRow(test_str1, test_size);
+  ASSERT_EQ(pool.getUsedSize(), test_size);
+  pool.setRow(test_str2, test_size);
+  char ex_str[4];
+  EXPECT_TRUE(pool.getRow(ex_str, 4));
+  const string res_str{ex_str};
+  EXPECT_STREQ (res_str.c_str(), str.c_str());  
+}
+
+TEST(PoolAllocator, setRow_bytesequene_check) { 
+  char test_str[]{'a','b','c','d'};
+  const string str{"dcba"};
+  const auto test_size{sizeof(test_str)};
+  PoolAllocator pool{4};
+  ASSERT_EQ(pool.getTotalSize(), test_size);
+  ASSERT_FALSE(pool.getUsedSize());
+  pool.setRow(test_str, test_size);
+  ASSERT_EQ(pool.getUsedSize(), test_size);
+  char ex_str[test_size];
+  for (auto counter = 0; counter < 4; ++counter) {
+    ASSERT_TRUE(pool.getRow(&ex_str[counter], 1));
+  }
+  const string res_str{ex_str};
+  EXPECT_STREQ (res_str.c_str(), str.c_str());  
+}
+
+class MemMgr : public ::testing::Test {
+  protected :
+    string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
+    fs::path tmp_path{fs::temp_directory_path()};
+    thread::id thr_id;
+    BuffMan buff_man{1, 6};
+    FileMode filemode;
+    shared_ptr<IOBuff> buff_point;
+
+    void SetUp() override {
+      tmp_path/=test;
+      std::fstream test_read_file;
+      test_read_file.open(tmp_path.string(), std::ios::out);
+      test_read_file<<test_str;
+      test_read_file.close();
+      std::get<0>(filemode) = tmp_path;
+      std::get<1>(filemode) = true;
+      std::get<2>(filemode) = false;
+      std::get<4>(filemode) = 2;
+      thr_id = std::this_thread::get_id();
+      auto tmp_buff = buff_man.getBuffer(thr_id);
+      if (std::holds_alternative<shared_ptr<IOBuff>>(tmp_buff)) {
+        buff_point = std::get<0>(tmp_buff);
+        buff_point->reSetSession(&filemode);
+      } 
+    }
+    void TearDown() override {
+      fs::remove(tmp_path);
+    }
+};
+
+TEST_F (MemMgr, CheckReadChar) {
+  string str;
+  ReadFileData<char> data{6};
+  ASSERT_TRUE(buff_point);
+  for (auto count = 0; count < 6; ++count) {
+    buff_point->readData<char>(&data);
+    str += data.data;
+  }
+  EXPECT_STREQ(str.c_str(), test_str.c_str());
 }
 
 GTEST_API_ int main(int argc, char** argv) {
