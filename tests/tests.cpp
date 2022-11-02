@@ -1370,6 +1370,7 @@ TEST(PoolAllocator, setRow_bytesequene_check) {
 class MemMgr : public ::testing::Test {
   protected :
     string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
+    string ex_str {"abcdef"};
     fs::path tmp_path{fs::temp_directory_path()};
     thread::id thr_id;
     BuffMan buff_man{1, 6};
@@ -1389,7 +1390,7 @@ class MemMgr : public ::testing::Test {
       thr_id = std::this_thread::get_id();
       auto tmp_buff = buff_man.getBuffer(thr_id);
       if (std::holds_alternative<shared_ptr<IOBuff>>(tmp_buff)) {
-        buff_point = std::get<0>(tmp_buff);
+        buff_point = std::move(std::get<shared_ptr<IOBuff>>(tmp_buff));
         buff_point->reSetSession(&filemode);
       } 
     }
@@ -1400,14 +1401,54 @@ class MemMgr : public ::testing::Test {
 
 TEST_F (MemMgr, CheckReadChar) {
   string str;
-  ReadFileData<char> data{6};
+  ReadFileData<char> data{2};
+  
   ASSERT_TRUE(buff_point);
-  for (auto count = 0; count < 6; ++count) {
-    buff_point->readData<char>(&data);
-    str += data.data;
-  }
-  EXPECT_STREQ(str.c_str(), test_str.c_str());
+  // for (auto count = 0; count < 3; ++count) {
+  //   buff_point->readData<char>(&data);
+  //   string tmp_data{data.data, 2};
+  //   str += tmp_data;
+  // }
+  EXPECT_STREQ(str.c_str(), ex_str.c_str());
 }
+
+// TEST (BuffMgr, CheckReadChar) {
+//   string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
+//   string ex_str {"abcdef"};
+//   fs::path tmp_path{fs::temp_directory_path()};
+//   thread::id thr_id;
+//   BuffMan buff_man{1, 6};
+//   FileMode filemode;
+//   shared_ptr<IOBuff> buff_point;
+//   string str;
+//   ReadFileData<char> data{2};
+//   tmp_path/=test;
+//   std::fstream test_read_file;
+//   test_read_file.open(tmp_path.string(), std::ios::out);
+//   test_read_file<<test_str;
+//   test_read_file.close();
+//   std::get<0>(filemode) = tmp_path;
+//   std::get<1>(filemode) = true;
+//   std::get<2>(filemode) = false;
+//   std::get<4>(filemode) = 2;
+//   thr_id = std::this_thread::get_id();
+//   auto tmp_buff = buff_man.getBuffer(thr_id);
+//   if (std::holds_alternative<shared_ptr<IOBuff>>(tmp_buff)) {
+//     buff_point = std::get<0>(tmp_buff);
+//     buff_point->reSetSession(&filemode);
+//   }   
+
+
+
+//   ASSERT_TRUE(buff_point);
+//   // for (auto count = 0; count < 3; ++count) {
+//   //   buff_point->readData<char>(&data);
+//   //   string tmp_data{data.data, 2};
+//   //   str += tmp_data;
+//   // }
+//   // EXPECT_STREQ(str.c_str(), ex_str.c_str());
+//   fs::remove(tmp_path);
+// }
 
 GTEST_API_ int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);

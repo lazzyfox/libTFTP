@@ -1981,7 +1981,6 @@ namespace MemoryManager {
           ret = true;
         }
         used_size -= data->size;
-        pool_point = request_point;
         return ret;
       }
       void clear (void) noexcept {
@@ -2007,10 +2006,10 @@ namespace MemoryManager {
 
         while (local_buff_size) {
           if (local_buff_size > blk_size) {
-            setRow(local_buff- blk_size, blk_size);
             local_buff_size -= blk_size;
+            setRow(local_buff + local_buff_size, blk_size);
           } else {
-            setRow(local_buff- local_buff_size, local_buff_size);
+            setRow(local_buff, local_buff_size);
             local_buff_size = 0;
           }
         }
@@ -2101,6 +2100,12 @@ namespace MemoryManager {
       : first{make_unique<PoolAllocator>(blk_size, blk_num)}, second{make_unique<PoolAllocator>(blk_size, blk_num)} {
         buff_size = blk_size * blk_num;
         }
+      ~IOBuff() {
+        if (dskIOThr) {
+          dskIOThr->request_stop();
+          dskIOThr->join();
+        }
+      }
 
       IOBuff(const IOBuff&) = delete;
       IOBuff(const IOBuff&&) = delete;
@@ -2173,6 +2178,7 @@ namespace MemoryManager {
           continue_io.notify_one();
           ret = true;
         }
+        string str{data->data, data->size};
         return ret;
       }
       template <typename T> requires TransType<T>
@@ -2205,7 +2211,15 @@ namespace MemoryManager {
       }
       BuffMan(const size_t buff_quantity, const size_t buff_blk_size, const size_t buff_blk_number) 
       : BuffMan{buff_quantity, buff_blk_size * buff_blk_number}{}
+      
+      ~BuffMan() = default;
 
+      
+      BuffMan(const BuffMan&) = delete;
+      BuffMan(const BuffMan&&) = delete;
+      BuffMan& operator = (const BuffMan&) = delete;
+      BuffMan& operator = (const BuffMan&&) = delete;
+      
       [[nodiscard]] variant<shared_ptr<IOBuff>, bool> getBuffer(const thread::id id) noexcept {
         variant<shared_ptr<IOBuff>, bool> ret{false};
         lock_guard<mutex> lck(assign_lock);
@@ -2216,7 +2230,7 @@ namespace MemoryManager {
           return ret;
         };
         for (auto vec : *buff_set) {
-          if (ranges::find_if(*workers_set, [vec](auto work_id){ if (work_id.second == vec) return true;}) == workers_set->end()){
+          if (ranges::find_if(*workers_set, [vec](auto work_id){ if (work_id.second == vec) return true; return false;}) == workers_set->end()){
             workers_set->emplace(make_pair(id, vec));
             ret = vec;
             break;
@@ -2720,8 +2734,6 @@ namespace TFTPSrvLib {
           sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
           continue;
         }
-       // current_worker = std::get<ThrWorker>(*work);
-        //worker_set = std::get<FileMode*>(current_worker);
         worker_set = std::get<FileMode*>(*work);
         std::get<0>(*worker_set) = std::get<0>(data.trans_params);
         std::get<1>(*worker_set) = std::get<1>(data.trans_params);
@@ -2736,111 +2748,6 @@ namespace TFTPSrvLib {
         //  Start new transfer in worker
         std::get<std::condition_variable*>(current_worker)->notify_one();
       }
-        //  Read request processing
-      //   if (request_code == TFTPOpeCode::TFTP_OPCODE_READ) {
-
-      //     //  Check if file exists and accessible
-      //     requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
-      //     std::ifstream r_file{ requested_file };
-      //     if (!r_file) {
-      //       ConstErrorPacket<FILE_READ_ERR_SIZE> error(TFTPError::Access_Violation, (char*)&FILE_READ_ERR);
-      //       sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-      //       continue;
-      //     }
-      //     fl_size = fs::file_size(requested_file);
-      //     r_file.close();
-      //     // if (data.req_params) {
-      //     //   checkParam(&data.req_params.value(), file_size);
-      //     // }
-      //     //  Create parameters set to start new transfer session
-      //     auto work{ getRes() };
-      //     std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
-      //     std::get<1>(*work.second) = true; 
-      //     if (TFTPMode mode{ std::get<2>(data.packet_frame_structure).value() }; mode == TFTPMode::netascii) {
-      //       std::get<2>(*work.second) = false;
-      //     }
-      //     else {
-      //       std::get<2>(*work.second) = true;
-      //     }
-      //     std::get<3>(*work.second) = 0;
-
-      //     //  Check if additional parameters (RFC 1782) are present
-      //     if (data.req_params.has_value()) {
-      //       auto add_param_set{ data.req_params.value() };
-      //       if (auto param{ getSockParam(&add_param_set, OptExtent::blksize) }; param) {
-      //         std::get<4>(*work.second) = param;
-      //       }
-      //       else {
-      //         std::get<4>(*work.second) = buff_size;
-      //       }
-      //       if (auto param{ getSockParam(&add_param_set, OptExtent::timeout) }; param) {
-      //         std::get<5>(*work.second) = param;
-      //       }
-      //       else {
-      //         std::get<5>(*work.second) = timeout;
-      //       }
-      //       std::get<6>(*work.second) = 0;
-      //     }
-      //     else {
-      //       std::get<4>(*work.second) = buff_size;
-      //       std::get<5>(*work.second) = timeout;
-      //       std::get<6>(*work.second) = 0;
-      //     }
-      //     std::get<7>(*work.second) = cliaddr;
-      //     work.first->notify_one();
-      //   }
-
-      //   //  Write request processing
-      //   if (request_code == TFTPOpeCode::TFTP_OPCODE_WRITE) {
-
-      //     //  Check if file already exists
-      //     requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
-      //     if (fs::exists(requested_file)) {
-      //       ConstErrorPacket<FILE_READ_ERR_SIZE> error(TFTPError::Access_Violation, (char*)&FILE_READ_ERR);
-      //       sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-      //       continue;
-      //     }
-      //     if (data.req_params) {
-      //       checkParam(&data.req_params.value(), file_size);
-      //     }
-
-      //     //  Create parameters set to start transfer session
-      //     auto work{ getRes() };
-      //     std::get<0>(*work.second) = base_dir / std::get<6>(data.packet_frame_structure).value();
-      //     std::get<1>(*work.second) = true;
-      //     if (TFTPMode mode{ std::get<2>(data.packet_frame_structure).value() }; mode == TFTPMode::netascii) {
-      //       std::get<2>(*work.second) = false;
-      //     }
-      //     else {
-      //       std::get<2>(*work.second) = true;
-      //     }
-      //     std::get<3>(*work.second) = 0;
-
-      //     //  Check if additional parameters (RFC 1782) are present
-      //     if (data.req_params.has_value()) {
-      //       if (auto param{ getSockParam(&data.req_params.value(), OptExtent::blksize) }; param) {
-      //         std::get<4>(*work.second) = param;
-      //       }
-      //       else {
-      //         std::get<4>(*work.second) = buff_size;
-      //       }
-      //       if (auto param{ getSockParam(&data.req_params.value(), OptExtent::timeout) }; param) {
-      //         std::get<5>(*work.second) = param;
-      //       }
-      //       else {
-      //         std::get<5>(*work.second) = timeout;
-      //       }
-      //       std::get<6>(*work.second) = 0;
-      //     }
-      //     else {
-      //       std::get<4>(*work.second) = buff_size;
-      //       std::get<5>(*work.second) = timeout;
-      //       std::get<6>(*work.second) = 0;
-      //     }
-      //     std::get<7>(*work.second) = cliaddr;
-      //     work.first->notify_one();
-      //   }
-      // }
       stop_server = false;
       if (log) {
         log->infoMsg("Main thread", "Session manager finished");
