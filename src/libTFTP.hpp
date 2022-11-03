@@ -2103,6 +2103,7 @@ namespace MemoryManager {
       ~IOBuff() {
         if (dskIOThr) {
           dskIOThr->request_stop();
+          std::this_thread::sleep_for(std::chrono::milliseconds(200));
           dskIOThr->join();
         }
       }
@@ -2133,12 +2134,18 @@ namespace MemoryManager {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::fromDskThr<byte>, this);
             } else {
+              dskIOThr->request_stop();
+              std::this_thread::sleep_for(std::chrono::milliseconds(200));
+              dskIOThr->join();
               dskIOThr.reset (new jthread(&IOBuff::fromDskThr<byte>, this));
             }
           } else {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::fromDskThr<char>, this);
             } else {
+              dskIOThr->request_stop();
+              std::this_thread::sleep_for(std::chrono::milliseconds(200));
+              dskIOThr->join();
               dskIOThr.reset (new jthread(&IOBuff::fromDskThr<char>, this));
             }
           }
@@ -2152,12 +2159,18 @@ namespace MemoryManager {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::toDskThr<byte>, this);
             } else {
+              dskIOThr->request_stop();
+              std::this_thread::sleep_for(std::chrono::milliseconds(200));
+              dskIOThr->join();
               dskIOThr.reset (new jthread(&IOBuff::toDskThr<byte>, this));
             }
           } else {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::toDskThr<char>, this);
             } else {
+              dskIOThr->request_stop();
+              std::this_thread::sleep_for(std::chrono::milliseconds(200));
+              dskIOThr->join();
               dskIOThr.reset (new jthread(&IOBuff::toDskThr<char>, this));
             }
           }
@@ -2211,9 +2224,7 @@ namespace MemoryManager {
       }
       BuffMan(const size_t buff_quantity, const size_t buff_blk_size, const size_t buff_blk_number) 
       : BuffMan{buff_quantity, buff_blk_size * buff_blk_number}{}
-      
       ~BuffMan() = default;
-
       
       BuffMan(const BuffMan&) = delete;
       BuffMan(const BuffMan&&) = delete;

@@ -1404,11 +1404,11 @@ TEST_F (MemMgr, CheckReadChar) {
   ReadFileData<char> data{2};
   
   ASSERT_TRUE(buff_point);
-  // for (auto count = 0; count < 3; ++count) {
-  //   buff_point->readData<char>(&data);
-  //   string tmp_data{data.data, 2};
-  //   str += tmp_data;
-  // }
+  for (auto count = 0; count < 3; ++count) {
+    buff_point->readData<char>(&data);
+    string tmp_data{data.data, 2};
+    str += tmp_data;
+  }
   EXPECT_STREQ(str.c_str(), ex_str.c_str());
 }
 
