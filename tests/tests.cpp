@@ -5,9 +5,32 @@
 #include <iostream>
 
 #include "../src/libTFTP.hpp"
+#include <unistd.h>
+using namespace TwinMapType;
 using namespace MemoryManager;
 //  Data type check
 char test[] = { 't', 'e', 's', 't' };
+
+TEST(TwinMapData, IntString) {
+  TwinMap<int, std::string> twin;
+  std::string ex_str1{"one"}, ex_str2{"two"}, ex_str3{"three"};
+  twin.set(1,  ex_str1);
+  twin.set(2,  ex_str2);
+  twin.set(3,  ex_str3);
+  auto int_test1{twin.get(1)};
+  auto int_test2{twin.get(2)};
+  auto int_test3{twin.get(3)};
+  auto str_test1{twin.get("one")};
+  auto str_test2{twin.get("two")};
+  auto str_test3{twin.get("three")};
+
+  EXPECT_EQ(1, str_test1);
+  EXPECT_EQ(2, str_test2);
+  EXPECT_EQ(3, str_test3);
+  EXPECT_STREQ(ex_str1.c_str(), int_test1.c_str());
+  EXPECT_STREQ(ex_str2.c_str(), int_test2.c_str());
+  EXPECT_STREQ(ex_str3.c_str(), int_test3.c_str());
+}
 
 //  ReadFile Data
 TEST(ReadData, CharData) {
@@ -1367,7 +1390,7 @@ TEST(PoolAllocator, setRow_bytesequene_check) {
   EXPECT_STREQ (res_str.c_str(), str.c_str());  
 }
 
-class MemMgr : public ::testing::Test {
+class MemMgrRead : public ::testing::Test {
   protected :
     string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
     string ex_str {"abcdef"};
@@ -1378,7 +1401,7 @@ class MemMgr : public ::testing::Test {
     shared_ptr<IOBuff> buff_point;
 
     void SetUp() override {
-      tmp_path/=test;
+      tmp_path/="test_read.txt";
       std::fstream test_read_file;
       test_read_file.open(tmp_path.string(), std::ios::out);
       test_read_file<<test_str;
@@ -1394,15 +1417,19 @@ class MemMgr : public ::testing::Test {
         buff_point->reSetSession(&filemode);
       } 
     }
+    
     void TearDown() override {
-      fs::remove(tmp_path);
+      if (fs::exists(tmp_path)) {
+        fs::remove(tmp_path);
+      }
     }
 };
 
-TEST_F (MemMgr, CheckReadChar) {
+TEST_F (MemMgrRead, CheckReadCharBuff) {
   string str;
   ReadFileData<char> data{2};
   
+  ASSERT_TRUE(fs::exists(tmp_path));
   ASSERT_TRUE(buff_point);
   for (auto count = 0; count < 3; ++count) {
     buff_point->readData<char>(&data);
@@ -1412,43 +1439,87 @@ TEST_F (MemMgr, CheckReadChar) {
   EXPECT_STREQ(str.c_str(), ex_str.c_str());
 }
 
-// TEST (BuffMgr, CheckReadChar) {
-//   string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
-//   string ex_str {"abcdef"};
-//   fs::path tmp_path{fs::temp_directory_path()};
-//   thread::id thr_id;
-//   BuffMan buff_man{1, 6};
-//   FileMode filemode;
-//   shared_ptr<IOBuff> buff_point;
-//   string str;
-//   ReadFileData<char> data{2};
-//   tmp_path/=test;
-//   std::fstream test_read_file;
-//   test_read_file.open(tmp_path.string(), std::ios::out);
-//   test_read_file<<test_str;
-//   test_read_file.close();
-//   std::get<0>(filemode) = tmp_path;
-//   std::get<1>(filemode) = true;
-//   std::get<2>(filemode) = false;
-//   std::get<4>(filemode) = 2;
-//   thr_id = std::this_thread::get_id();
-//   auto tmp_buff = buff_man.getBuffer(thr_id);
-//   if (std::holds_alternative<shared_ptr<IOBuff>>(tmp_buff)) {
-//     buff_point = std::get<0>(tmp_buff);
-//     buff_point->reSetSession(&filemode);
-//   }   
+TEST_F (MemMgrRead, CheckReadCharFile) {
+  string str;
+  ReadFileData<char> data{2};
+  
+  ASSERT_TRUE(fs::exists(tmp_path));
+  ASSERT_TRUE(buff_point);
+  for (auto count = 0; count < 18; ++count) {
+    buff_point->readData<char>(&data);
+    string tmp_data{data.data, 2};
+    str += tmp_data;
+  }
+  EXPECT_STREQ(str.c_str(), test_str.c_str());
+}
 
+class MemMgrWrite : public ::testing::Test {
+  protected :
+    string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
+    string ex_str {"abcdef"};
+    fs::path tmp_path{fs::temp_directory_path()};
+    thread::id thr_id;
+    BuffMan buff_man{1, 6};
+    FileMode filemode;
+    shared_ptr<IOBuff> buff_point;
 
+    void SetUp() override {
+      tmp_path/="test_write.txt";
+      std::get<0>(filemode) = tmp_path;
+      std::get<1>(filemode) = false;
+      std::get<2>(filemode) = false;
+      std::get<4>(filemode) = 2;
+      std::get<6>(filemode) = 36;
+      thr_id = std::this_thread::get_id();
+      auto tmp_buff = buff_man.getBuffer(thr_id);
+      if (std::holds_alternative<shared_ptr<IOBuff>>(tmp_buff)) {
+        buff_point = std::move(std::get<shared_ptr<IOBuff>>(tmp_buff));
+        buff_point->reSetSession(&filemode);
+      } 
+    }
 
-//   ASSERT_TRUE(buff_point);
-//   // for (auto count = 0; count < 3; ++count) {
-//   //   buff_point->readData<char>(&data);
-//   //   string tmp_data{data.data, 2};
-//   //   str += tmp_data;
-//   // }
-//   // EXPECT_STREQ(str.c_str(), ex_str.c_str());
-//   fs::remove(tmp_path);
-// }
+    void TearDown() override {
+      if (fs::exists(tmp_path)) {
+        fs::remove(tmp_path);
+      }
+    }
+};
+
+TEST_F (MemMgrWrite, CheckWriteCharBuff) {
+  const uint8_t io_size{2};
+  string str;
+  ReadFileData<char> data{io_size};
+  std::ifstream ifs;
+  ASSERT_TRUE(buff_point);
+  for (auto count = 0; count < 6; count += io_size) {
+    data.setData(test_str.substr(count, io_size));
+    buff_point->writeData<char>(&data);
+  }
+  std::this_thread::sleep_for(seconds(1));
+  ASSERT_TRUE(fs::exists(tmp_path));
+  ifs.open(tmp_path.string());
+  ifs>>str;
+  EXPECT_STREQ(str.c_str(), ex_str.c_str());
+}
+
+TEST_F (MemMgrWrite, CheckWriteCharFile) {
+  const uint8_t io_size{2};
+  string str;
+  ReadFileData<char> data{io_size};
+  std::ifstream ifs;
+  ASSERT_TRUE(buff_point);
+  for (auto count = 0; count < 36; count += io_size) {
+    data.setData(test_str.substr(count, io_size));
+    buff_point->writeData<char>(&data);
+    //std::this_thread::sleep_for(milliseconds(1));
+  }
+  sync();
+  ASSERT_TRUE(fs::exists(tmp_path));
+  ifs.open(tmp_path.string());
+  ifs>>str;
+  cashe
+  EXPECT_STREQ(str.c_str(), test_str.c_str());
+}
 
 GTEST_API_ int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);

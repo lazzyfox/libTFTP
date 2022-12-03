@@ -1,4 +1,4 @@
-#ifndef TFTPLIB_HPP
+#ifndef TFTPLIB_HPP 
 #define TFTPLIB_HPP
 
 /*
@@ -92,7 +92,26 @@ SOFTWARE.
 #include <netdb.h>
 #include <errno.h>
 
-
+namespace TwinMapType {
+  template <typename T1, typename T2>
+  class TwinMap {
+    public :
+      TwinMap () : t1_key{std::make_unique<std::unordered_map<T1, T2>>()}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()}{}
+      void set(T1 t1, T2 t2) {
+        auto ret1 = t1_key->try_emplace(t1, t2);
+        auto ret2 = t2_key->try_emplace(t2, t1);
+      }
+      T2 get(T1 t1) {
+        return t1_key->at(t1);
+      }
+      T1 get(T2 t2) {
+        return t2_key->at(t2);
+      }
+    private :
+      std::unique_ptr<std::unordered_map<T1, T2>> t1_key{};
+      std::unique_ptr<std::unordered_map<T2, T1>> t2_key{};
+  };
+}
 namespace {
   namespace ranges = std::ranges;
   namespace fs = std::filesystem;
@@ -123,6 +142,7 @@ namespace {
   using std::unique_lock;
   using std::lock_guard;
   using std::atomic;
+  using std::atomic_flag;
   using std::byte;
   using std::ranges::transform;
   using std::back_inserter;
@@ -1137,7 +1157,27 @@ namespace {
 
       return ret;
     }
-
+    //  Read file part according requested size
+    //  true - success
+    //  false - EOF
+    //  string - error text
+    template <typename T> requires TransType<T>
+    [[nodiscard]] variant<bool, string> readFile(ReadFileData<T>* buffer) noexcept {
+      variant<bool, string> ret{true};
+      if constexpr (std::is_same<T, byte>::value) {
+        read_file.read((char*)buffer->data, buffer->size);
+      }
+      else {
+        read_file.read(buffer->data, buffer->size);
+      }
+      if (!read_file) {
+        ret = strerror(errno);
+      }
+      if (read_file.eof()) {
+        ret = false;
+      }
+      return ret;
+    }
     bool write(string_view str) noexcept {
       bool ret{ true };
       write_file << str << std::flush;
@@ -1163,7 +1203,19 @@ namespace {
       }
       return ret;
     }
-
+    template <typename T> requires TransType<T>
+    [[nodiscard]] variant<bool, string> writeFile(T* str) noexcept {
+      variant<bool, string> ret{true};
+      std::cout<<"Writing to file : " << str<<std::endl<<std::flush;
+      write_file << str << std::flush;
+      if (write_file.bad()) {
+        ret = strerror(errno);
+      }
+      return ret;
+    }
+    [[nodiscard]] fs::path getFilePath(void) const noexcept {
+      return file_name;
+    }
   protected:
     const fs::path file_name;
   private:
@@ -1404,7 +1456,6 @@ namespace {
     struct sockaddr_in address;
     int opt {1};
     struct sockaddr_storage cliaddr;  //  Client connection address 
-    //socklen_t  cli_addr_size{ sizeof(cliaddr)};
     int addrlen {sizeof(address)};
     socklen_t  cli_addr_size;
     string multicast_address;
@@ -1845,14 +1896,18 @@ namespace MemoryManager {
   //  Pool allocator
   class PoolAllocator {
     public :
+      atomic<bool> buff_not_busy{false};
+      unique_lock<std::mutex>  wait_thr_busy;
+      condition_variable thr_copy_finish;
+
       explicit PoolAllocator(const size_t pool_size) : total_size{pool_size} {
         pool_point = malloc(pool_size);
-        pool_front = pool_point;
+        wait_thr_busy = std::unique_lock<std::mutex>(pool_mut, std::adopt_lock);
       }
       PoolAllocator(const size_t blk_size, const size_t blk_num) 
         : total_size {blk_size * blk_num}, block_size{make_unique<size_t>(blk_size)}, blocks_number {make_unique<size_t>(blk_num)} {
           pool_point = malloc(total_size);
-          pool_front = pool_point;
+          wait_thr_busy = std::unique_lock<std::mutex>(pool_mut, std::adopt_lock);
       }
       ~PoolAllocator() {
         if (pool_point) {
@@ -1865,6 +1920,8 @@ namespace MemoryManager {
       PoolAllocator& operator = (const PoolAllocator&) = delete;
       PoolAllocator& operator = (const PoolAllocator&&) = delete;
       
+      
+
       bool setRow(void* const data, const size_t size) noexcept {
         bool ret {false};
         if (!data || size < 0) {
@@ -1874,6 +1931,7 @@ namespace MemoryManager {
         if (size > free_space) {
           return ret;
         }
+        
         auto res = memcpy(pool_point + used_size, data, size);
         if (!res) {
           return ret;
@@ -2016,7 +2074,13 @@ namespace MemoryManager {
         if (local_buff_size == 0) {
           ret = true;
         }
-        free (local_buff);
+        string s {(char*)source, size};
+        string ss {(char*) pool_point, used_size};
+        std::cout<<"Buffer content " << ss<<std::endl<<std::flush;
+        if (local_buff) {
+          free (local_buff);
+        }
+        
         return ret;
       }
       [[nodiscard]] size_t getTotalSize (void) noexcept {
@@ -2025,14 +2089,15 @@ namespace MemoryManager {
       [[nodiscard]] size_t getUsedSize (void) noexcept {
         return used_size;
       }
-    protected :
+    private :
       size_t total_size;
       size_t used_size{0};
       unique_ptr<size_t> block_size;
       unique_ptr<size_t> blocks_number;
       void* pool_point{nullptr};
-      void* pool_front{nullptr};
+      mutex pool_mut;
   };
+
   //  Buffer for IO/Net operations
   class IOBuff {
     private :
@@ -2041,31 +2106,79 @@ namespace MemoryManager {
       size_t blk_size {0};
       size_t buff_size{0};
       size_t file_size{0};
+      size_t current_download_size{0};
       unique_ptr<jthread> dskIOThr;
       mutex dsk_mut;
-      std::unique_lock<std::mutex> wait_cash_operation;
+      unique_lock<std::mutex> wait_cash_operation;
       condition_variable continue_io;
       atomic<bool> stop_io{false};
       PoolAllocator *active_buff, *passive_buff;
+      shared_ptr<Log> log;
 
+      struct DskStopThrVisitor {
+        jthread* const thr{nullptr};
+        shared_ptr<Log> log;
+        FileIO* const file{nullptr};
+        bool break_thr{false};
+
+        explicit DskStopThrVisitor(jthread* const thr) : thr{thr}{}
+        DskStopThrVisitor(jthread* const thr, shared_ptr<Log> log, FileIO* const file) : thr{thr}, log{log}, file{file}{}
+        void operator()(const bool &condition) {
+          if (!condition) {
+            thr->request_stop();
+            break_thr = true;
+          }
+        }
+        void operator()(const string& str){
+          if (log) {
+            string msg {"Operation with file"};
+            msg += file->getFilePath().string();
+            log->errMsg(msg, str);
+          }
+          thr->request_stop();
+          break_thr = true;
+        }
+      };
 
       //  Write buffers cashed data to file (from passive one)
       template <typename T> requires TransType<T>
       void toDskThr(std::stop_token stop_token) {
         T buff_data[buff_size];
-        wait_cash_operation = std::unique_lock<std::mutex>(dsk_mut, std::defer_lock);
-        continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
-        while (stop_token.stop_requested()) {
-          wait_cash_operation.lock();
+        bool ret {false};
+        variant<bool, string> res_var;
+        unique_ptr<DskStopThrVisitor> thr_stop_vis;
+
+        if (log) {
+          thr_stop_vis = make_unique<DskStopThrVisitor>(dskIOThr.get(), log, file.get());
+        } else {
+          thr_stop_vis = make_unique<DskStopThrVisitor>(dskIOThr.get());
+        }
+        
+        while (!stop_token.stop_requested()) {
+          passive_buff->clear();
+          stop_io = false;
+          passive_buff->thr_copy_finish.notify_all();
+          passive_buff->buff_not_busy = true;
+          continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
+          passive_buff->buff_not_busy = false;
+          if (stop_token.stop_requested()) {
+            passive_buff->buff_not_busy = true;
+            passive_buff->thr_copy_finish.notify_all();
+            break;
+          }
           if (auto current_dat{passive_buff->getUsedSize()}; current_dat < buff_size) {
             T last_data[current_dat];
-            passive_buff->getRow(&last_data, current_dat);
-            file->writeType<T>(last_data);
+            ret = passive_buff->getRow(&last_data, current_dat);
+            res_var = file->writeFile<T>(last_data);
           } else {
-            passive_buff->getRow(&buff_data, buff_size);
-            file->writeType<T>(buff_data);
+            ret = passive_buff->getRow(&buff_data, buff_size);
+            res_var = file->writeFile<T>(buff_data);
           }
-          continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
+          std::visit(*thr_stop_vis, res_var);
+          if (thr_stop_vis->break_thr || !ret) {
+            passive_buff->buff_not_busy = true;
+            passive_buff->thr_copy_finish.notify_all();
+          }
         }
       }
       //  Fill cash buffer (in reverse order) by requested file data
@@ -2073,38 +2186,117 @@ namespace MemoryManager {
       void fromDskThr(std::stop_token stop_token) {
         size_t data_rest{file_size};
         ReadFileData<T> read_buff(buff_size);
-        wait_cash_operation = std::unique_lock<std::mutex>(dsk_mut, std::defer_lock);
-        //wait_cash_operation.unlock();
+        variant<bool, string> res_var;
+        bool res;
+        unique_ptr<DskStopThrVisitor> thr_stop_vis;
+
+        if (log) {
+          thr_stop_vis = make_unique<DskStopThrVisitor>(dskIOThr.get(), log, file.get());
+        } else {
+          thr_stop_vis = make_unique<DskStopThrVisitor>(dskIOThr.get());
+        }
+       
         while (!stop_token.stop_requested()) {
-          data_rest -= buff_size;
+          passive_buff->buff_not_busy = false;
+          passive_buff->clear();
           if(data_rest < buff_size) {
             ReadFileData<T> read_rest(data_rest);
-            passive_buff->setReverseOrder(read_rest.data, read_rest.size, blk_size);
+            res_var = file->readFile<T>(&read_rest);
+            res = passive_buff->setReverseOrder(read_rest.data, read_rest.size, blk_size);
           } else {
-            file->readType<T>(&read_buff);
-            passive_buff->setReverseOrder(read_buff.data, read_buff.size, blk_size);
+            res_var = file->readFile<T>(&read_buff);
+            res = passive_buff->setReverseOrder(read_buff.data, read_buff.size, blk_size);
           }
-          wait_cash_operation.lock();
+          std::visit(*thr_stop_vis, res_var);
+          if (thr_stop_vis->break_thr || !res) {
+            passive_buff->buff_not_busy = true;
+            passive_buff->thr_copy_finish.notify_all();
+            continue;
+          }
+          data_rest -= buff_size;
+          stop_io = false;
+          passive_buff->buff_not_busy = true;
+          passive_buff->thr_copy_finish.notify_all();
           continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
         }
+        passive_buff->buff_not_busy = true;
+        passive_buff->thr_copy_finish.notify_all();
       }
       void swapBuff(void) {
         auto tmp = passive_buff;
         passive_buff = active_buff;
         active_buff = tmp;
       }
+      bool stopThr(void) {
+        bool ret {false};
+        stop_io = true;
+
+        if (!wait_cash_operation.owns_lock()) {
+          return true;
+        }
+        auto token = dskIOThr->get_stop_token();
+        if (!token.stop_possible())  {
+          return ret;
+        }
+        if (token.stop_requested()) {
+          dskIOThr->join();
+          return true;
+        }
+        ret = dskIOThr->request_stop();
+        continue_io.notify_one();
+        if (!ret) {
+          return ret;
+        }
+        dskIOThr->join();
+        if (!dskIOThr->joinable()){
+          ret = true;
+        }
+        // swapBuff();
+        // stop_io = true;
+        // continue_io.notify_one();
+        return ret;
+      }
+      void reStartThr(void) noexcept {
+        swapBuff();
+        stop_io = true;
+        continue_io.notify_one();
+      }
     public :
       explicit IOBuff (const size_t buff_size) 
-      : first{make_unique<PoolAllocator>(buff_size)}, second{make_unique<PoolAllocator>(buff_size)}, buff_size{buff_size}{}
+      : first{make_unique<PoolAllocator>(buff_size)}, 
+        second{make_unique<PoolAllocator>(buff_size)},
+        buff_size{buff_size},
+        wait_cash_operation{std::unique_lock<std::mutex>(dsk_mut, std::adopt_lock)}
+        {}
       IOBuff (const size_t blk_size, const size_t blk_num) 
-      : first{make_unique<PoolAllocator>(blk_size, blk_num)}, second{make_unique<PoolAllocator>(blk_size, blk_num)} {
-        buff_size = blk_size * blk_num;
-        }
+      : first{make_unique<PoolAllocator>(blk_size, blk_num)},
+        second{make_unique<PoolAllocator>(blk_size, blk_num)},
+        buff_size {blk_size * blk_num},
+        wait_cash_operation {std::unique_lock<std::mutex>(dsk_mut, std::adopt_lock)}
+      {}
+      IOBuff (const size_t buff_size, std::shared_ptr<Log> log) 
+      : first{make_unique<PoolAllocator>(buff_size)},
+        second{make_unique<PoolAllocator>(buff_size)},
+        buff_size{buff_size},
+        wait_cash_operation {std::unique_lock<std::mutex>(dsk_mut, std::adopt_lock)},
+        log{log}
+      {}
+      IOBuff (const size_t blk_size, const size_t blk_num, std::shared_ptr<Log> log) 
+      : first{make_unique<PoolAllocator>(blk_size, blk_num)},
+        second{make_unique<PoolAllocator>(blk_size, blk_num)},
+        buff_size {blk_size * blk_num},
+        wait_cash_operation {std::unique_lock<std::mutex>(dsk_mut, std::adopt_lock)},
+        log{log}
+      {}
       ~IOBuff() {
         if (dskIOThr) {
-          dskIOThr->request_stop();
-          std::this_thread::sleep_for(std::chrono::milliseconds(200));
-          dskIOThr->join();
+          stopThr();
+        }
+        if (active_buff) {
+          active_buff->thr_copy_finish.notify_all();
+        }
+        if (passive_buff) {
+          passive_buff->thr_copy_finish.notify_all();
         }
       }
 
@@ -2126,6 +2318,7 @@ namespace MemoryManager {
         }
         active_buff = first.get();
         passive_buff = second.get();
+        current_download_size = 0;
         
         //  Read mode - read to buffer from file
         if (std::get<1>(*mode)) {
@@ -2134,43 +2327,55 @@ namespace MemoryManager {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::fromDskThr<byte>, this);
             } else {
-              dskIOThr->request_stop();
-              std::this_thread::sleep_for(std::chrono::milliseconds(200));
-              dskIOThr->join();
+              stopThr();
               dskIOThr.reset (new jthread(&IOBuff::fromDskThr<byte>, this));
             }
           } else {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::fromDskThr<char>, this);
             } else {
-              dskIOThr->request_stop();
-              std::this_thread::sleep_for(std::chrono::milliseconds(200));
-              dskIOThr->join();
+              stopThr();
               dskIOThr.reset (new jthread(&IOBuff::fromDskThr<char>, this));
             }
           }
-          while (!wait_cash_operation.owns_lock()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+          while (!passive_buff->buff_not_busy.load()) {
+            passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(5), [this]{return passive_buff->buff_not_busy.load();});
           }
-          swapBuff();
+          reStartThr();
         } else {  //  Write mode - write from buffer to file
+          
+         
           file_size = std::get<6>(*mode).value();
           if (std::get<2>(*mode)) {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::toDskThr<byte>, this);
             } else {
-              dskIOThr->request_stop();
-              std::this_thread::sleep_for(std::chrono::milliseconds(200));
-              dskIOThr->join();
+              while (!passive_buff->buff_not_busy.load()) {
+                passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(5), [this]{return passive_buff->buff_not_busy.load();});
+              }
+              if (passive_buff) {
+                passive_buff->buff_not_busy = true;
+              }
+              if (active_buff) {
+                active_buff->buff_not_busy = true;
+              }
+              stopThr();
               dskIOThr.reset (new jthread(&IOBuff::toDskThr<byte>, this));
             }
           } else {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::toDskThr<char>, this);
             } else {
-              dskIOThr->request_stop();
-              std::this_thread::sleep_for(std::chrono::milliseconds(200));
-              dskIOThr->join();
+              while (!passive_buff->buff_not_busy.load()) {
+                passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(5), [this]{return passive_buff->buff_not_busy.load();});
+              }
+              if (passive_buff) {
+                passive_buff->buff_not_busy = true;
+              }
+              if (active_buff) {
+                active_buff->buff_not_busy = true;
+              }
+              stopThr();
               dskIOThr.reset (new jthread(&IOBuff::toDskThr<char>, this));
             }
           }
@@ -2187,8 +2392,18 @@ namespace MemoryManager {
           return ret;
         }
         if (!active_buff->getUsedSize()) {
-          swapBuff();
-          continue_io.notify_one();
+          //  Check if buffer still in work (busy), waiting for finish
+          if (stop_io.load()) {
+            std::this_thread::sleep_for(milliseconds(1)); 
+          }
+          if (passive_buff) {
+            while (!passive_buff->buff_not_busy.load()) {
+              passive_buff->thr_copy_finish.wait_for(active_buff->wait_thr_busy, milliseconds(5), [this]{return active_buff->buff_not_busy.load();});
+            }
+          reStartThr();
+          } else {
+            return ret;
+          }
           ret = true;
         }
         string str{data->data, data->size};
@@ -2197,34 +2412,56 @@ namespace MemoryManager {
       template <typename T> requires TransType<T>
       [[nodiscard]] bool writeData(ReadFileData<T>* const data) noexcept {
         bool ret{false};
+        size_t free_buff_space{buff_size - active_buff->getUsedSize()};
         if (!data) {
           return ret;
         }
+        if (data->size > active_buff->getTotalSize()) {
+          return false;
+        }
         ret = active_buff->setDat(data);
+        free_buff_space -= data->size;
         if (!ret) {
           return ret;
+        } else {  //  End of file check
+          //  Stop uploading
+          if (current_download_size == file_size) {
+            while (!passive_buff->buff_not_busy.load()) {
+              passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
+            }
+            reStartThr();
+            return true;
+          }
         }
-        if (!active_buff->getUsedSize() >= buff_size) {
-          swapBuff();
-          continue_io.notify_one();
+        //  Check if is a time to change buffer because current one is full already
+        if (data->size > free_buff_space) {
+          //  Check if buffer still busy, waiting for finish if it is
+          while (!passive_buff->buff_not_busy.load()) {
+            passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
+          }
+          reStartThr();
           ret = true;
         }
         return ret;
       }
   };
+  
   //  Buffer manager class - creating buffers (IOBuff) for everyone worker and assign each of them to by request
   class BuffMan {
     public :
       BuffMan(const size_t buff_quantity, const size_t buff_size) : buff_quantity{buff_quantity} {
         buff_set = make_unique<vector<shared_ptr<IOBuff>>>();
-         workers_set = make_unique<map<thread::id, shared_ptr<IOBuff>>>();
+        workers_set = make_unique<map<thread::id, shared_ptr<IOBuff>>>();
         for (size_t count = 0; count < buff_quantity; ++count) {
           buff_set->emplace_back(make_shared<IOBuff>(buff_size));
         }
       }
       BuffMan(const size_t buff_quantity, const size_t buff_blk_size, const size_t buff_blk_number) 
       : BuffMan{buff_quantity, buff_blk_size * buff_blk_number}{}
-      ~BuffMan() = default;
+      ~BuffMan() {
+        workers_set->clear();
+        buff_set->clear();
+      }
       
       BuffMan(const BuffMan&) = delete;
       BuffMan(const BuffMan&&) = delete;
@@ -2342,7 +2579,7 @@ namespace TFTPSrvLib {
           return ret;
         }
 
-        //  Loop through all the results, make a socket and send terminationg message
+        //  Loop through all the results, make a socket and send termination message
         for (auto p = servinfo; p != NULL; p = p->ai_next) {
           if (sock_id = socket(p->ai_family, p->ai_socktype, p->ai_protocol); sock_id == -1) {
             continue;
