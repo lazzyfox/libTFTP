@@ -1511,13 +1511,10 @@ TEST_F (MemMgrWrite, CheckWriteCharFile) {
   for (auto count = 0; count < 36; count += io_size) {
     data.setData(test_str.substr(count, io_size));
     buff_point->writeData<char>(&data);
-    //std::this_thread::sleep_for(milliseconds(1));
   }
-  sync();
   ASSERT_TRUE(fs::exists(tmp_path));
   ifs.open(tmp_path.string());
   ifs>>str;
-  cashe
   EXPECT_STREQ(str.c_str(), test_str.c_str());
 }
 

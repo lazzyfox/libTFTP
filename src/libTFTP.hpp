@@ -2440,6 +2440,7 @@ namespace MemoryManager {
             passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
           }
           reStartThr();
+          passive_buff->buff_not_busy = false;
           ret = true;
         }
         return ret;
