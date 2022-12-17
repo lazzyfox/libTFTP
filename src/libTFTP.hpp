@@ -74,6 +74,7 @@ SOFTWARE.
 #include <algorithm>
 #include <ios>
 #include <regex>
+#include <cmath>
 
 
 #include <stdio.h>
@@ -93,13 +94,30 @@ SOFTWARE.
 #include <errno.h>
 
 namespace TwinMapType {
+  // template <typename T1, typename T2, template<typename... Ts1> typename Varp1,  template<typename... Ts2>  typename Varp2>
   template <typename T1, typename T2>
   class TwinMap {
     public :
       TwinMap () : t1_key{std::make_unique<std::unordered_map<T1, T2>>()}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()}{}
-      void set(T1 t1, T2 t2) {
-        auto ret1 = t1_key->try_emplace(t1, t2);
-        auto ret2 = t2_key->try_emplace(t2, t1);
+      TwinMap (std::initializer_list<std::pair<const T1, T2>> lst) :  t1_key{std::make_unique<std::unordered_map<T1, T2>>(lst)}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()} {
+        auto copyMap = [this] (auto lst_pair) {
+          //T1 val = const_cast<T1>(lst_pair.first);
+          t2_key->try_emplace(lst_pair.second, lst_pair.first);
+        };
+        std::ranges::for_each(lst, copyMap);
+      }
+      bool set(T1 t1, T2 t2) {
+        bool ret {true};
+        try {
+          auto ret1 = t1_key->try_emplace(t1, t2);
+          auto ret2 = t2_key->try_emplace(t2, t1);
+          // if (!ret1 || !ret2) {
+          //   ret = false; 
+          // }
+        } catch (...) {
+          ret = false;
+        }
+        return ret;
       }
       T2 get(T1 t1) {
         return t1_key->at(t1);
@@ -146,6 +164,8 @@ namespace {
   using std::byte;
   using std::ranges::transform;
   using std::back_inserter;
+  using std::inserter;
+  using std::remove_const;
   template<std::size_t... Ints> using index_sequence = std::integer_sequence<std::size_t, Ints...>;
 
 
@@ -1893,6 +1913,14 @@ namespace {
 }
 
 namespace MemoryManager {
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wpointer-arith"
+  
+  //  Buffer get data request return datatype - 
+  //  string_view error description in error case,
+  //  size_t - number of bytes copied to requested container
+  using GetBuffDat = std::variant<std::string_view, size_t>;
+  
   //  Pool allocator
   class PoolAllocator {
     public :
@@ -1920,8 +1948,7 @@ namespace MemoryManager {
       PoolAllocator& operator = (const PoolAllocator&) = delete;
       PoolAllocator& operator = (const PoolAllocator&&) = delete;
       
-      
-
+      //  Fill buffer in by data 
       bool setRow(void* const data, const size_t size) noexcept {
         bool ret {false};
         if (!data || size < 0) {
@@ -1981,66 +2008,87 @@ namespace MemoryManager {
         used_size += data->size;
         return ret;
       }
-      bool getRow (void* const data, const size_t size) noexcept {
-        bool ret {false};
+      //  Get data out from buffer
+      [[nodiscard]] GetBuffDat getRow (void* const data, const size_t size) noexcept {
+        GetBuffDat ret {(size_t)0};
         if (!data) {
+          ret = "Wrong data container. Container size is 0";
           return ret;
         }
         if (size > used_size) {
+          ret = used_size;
+        } else {
+          ret = size;
+        }
+        auto request_point{pool_point + (used_size - size)};
+        if (!request_point) {
+          ret = "Wrong buffer access operation";
           return ret;
         }
-        auto request_point{pool_point + (used_size- size)};
         auto res = memcpy(data, request_point, size);
         if (!res) {
+          ret = "Wrong copy operation to container";
           return ret;
-        } else {
-          ret = true;
-        }
+        } 
         used_size -= size;
         return ret;
       }
-      bool getBlk(void* const data, const size_t blk_num) noexcept {
-        bool ret {false};
+      [[nodiscard]] GetBuffDat getBlk(void* const data, const size_t blk_num) noexcept {
+        GetBuffDat ret {(size_t)0};
+
         if (!data || blk_num < 1) {
+          ret = "Wrong data container. Container size is 0 or block size < 1";
           return ret;
         }
-        if (!blocks_number || !blocks_number) {
-          return ret;
-        }
+        
         auto request_size{*block_size * blk_num};
         if ( request_size > used_size) {
-          return ret;
+          ret = used_size;
+        } else {
+          ret = request_size;
         }
         auto request_point {pool_point + (used_size - request_size)};
+        if (!request_point) {
+          ret = "Wrong buffer access operation";
+          return ret;
+        }
         auto res = memcpy(data, request_point, request_size);
         if (!res) {
+          ret = "Wrong copy operation to container";
           return ret;
-        } else {
-          ret = true;
         }
         *blocks_number -= blk_num;
         used_size -= request_size;
         return ret;
       }
       template <typename T> requires TransType<T>
-      bool getDat(ReadFileData<T>* const data) noexcept {
-        bool ret {false};
+      [[nodiscard]] GetBuffDat getDat(ReadFileData<T>* const data) noexcept {
+        GetBuffDat ret {(size_t)0};
+
         if (!data) {
+          ret = "Wrong data container. Container size is 0";
           return ret;
         }
+        
         if (data->size > used_size) {
-          return ret;
+          ret = used_size;
+        } else {
+          ret = data->size;
         }
         auto request_point{pool_point + (used_size - data->size)};
+        if (!request_point) {
+          ret = "Wrong buffer access operation";
+          return ret;
+        }
         auto res = memcpy(data->data, request_point, data->size);
         if (!res) {
+          ret = "Wrong copy operation to container";
           return ret;
-        } else {
-          ret = true;
-        }
+        } 
         used_size -= data->size;
         return ret;
       }
+      //  Buffer management tools
       void clear (void) noexcept {
         used_size = 0;
       }
@@ -2074,20 +2122,24 @@ namespace MemoryManager {
         if (local_buff_size == 0) {
           ret = true;
         }
+        //  TODO : DELETE debug 
         string s {(char*)source, size};
         string ss {(char*) pool_point, used_size};
         std::cout<<"Buffer content " << ss<<std::endl<<std::flush;
         if (local_buff) {
           free (local_buff);
         }
-        
         return ret;
       }
-      [[nodiscard]] size_t getTotalSize (void) noexcept {
+      //  Buffer state information
+      [[nodiscard]] size_t getTotalSize (void) const noexcept {
         return total_size;
       }
-      [[nodiscard]] size_t getUsedSize (void) noexcept {
+      [[nodiscard]] size_t getUsedSize (void) const noexcept {
         return used_size;
+      }
+      [[nodiscard]] size_t getFreeSize (void) const noexcept {
+        return total_size - used_size;
       }
     private :
       size_t total_size;
@@ -2098,20 +2150,23 @@ namespace MemoryManager {
       mutex pool_mut;
   };
 
+  #pragma GCC diagnostic pop
+  
   //  Buffer for IO/Net operations
   class IOBuff {
     private :
       unique_ptr<PoolAllocator> first, second;
       unique_ptr<FileIO> file;
       size_t blk_size {0};
-      size_t buff_size{0};
-      size_t file_size{0};
-      size_t current_download_size{0};
+      size_t buff_size {0};
+      size_t file_size {0};
+      size_t session_buff_size {0};
+      size_t current_download_size {0};
       unique_ptr<jthread> dskIOThr;
       mutex dsk_mut;
       unique_lock<std::mutex> wait_cash_operation;
       condition_variable continue_io;
-      atomic<bool> stop_io{false};
+      atomic<bool> stop_io {false};
       PoolAllocator *active_buff, *passive_buff;
       shared_ptr<Log> log;
 
@@ -2139,23 +2194,41 @@ namespace MemoryManager {
           break_thr = true;
         }
       };
-
+      struct GetDatVisitor {
+        shared_ptr<Log> log;
+        size_t ret_data_numbers {0};
+        FileIO* const file{nullptr};
+        explicit GetDatVisitor(FileIO* const file) : file{file}{}
+        GetDatVisitor(shared_ptr<Log> log, FileIO* const file) : log{log}, file{file}{}
+        void operator()(size_t res) {ret_data_numbers = res;}
+        void operator()(string_view err_str) {
+          if (log) {
+            string msg {"Operation with file"};
+            msg += file->getFilePath().string();
+            log->errMsg(msg, err_str);
+          }
+          ret_data_numbers = 0;
+        }
+      };
       //  Write buffers cashed data to file (from passive one)
       template <typename T> requires TransType<T>
       void toDskThr(std::stop_token stop_token) {
         T buff_data[buff_size];
-        bool ret {false};
+      //  bool ret {false};
         variant<bool, string> res_var;
         unique_ptr<DskStopThrVisitor> thr_stop_vis;
+        unique_ptr<GetDatVisitor> get_dat_res;
+        GetBuffDat get_res;
 
         if (log) {
           thr_stop_vis = make_unique<DskStopThrVisitor>(dskIOThr.get(), log, file.get());
+          get_dat_res = make_unique<GetDatVisitor>(log, file.get());
         } else {
           thr_stop_vis = make_unique<DskStopThrVisitor>(dskIOThr.get());
+          get_dat_res = make_unique<GetDatVisitor>(file.get());
         }
         
         while (!stop_token.stop_requested()) {
-          passive_buff->clear();
           stop_io = false;
           passive_buff->thr_copy_finish.notify_all();
           passive_buff->buff_not_busy = true;
@@ -2164,20 +2237,33 @@ namespace MemoryManager {
           if (stop_token.stop_requested()) {
             passive_buff->buff_not_busy = true;
             passive_buff->thr_copy_finish.notify_all();
+           // std::cout<<"Terminate 1" <<std::endl<<std::flush;
             break;
           }
           if (auto current_dat{passive_buff->getUsedSize()}; current_dat < buff_size) {
             T last_data[current_dat];
-            ret = passive_buff->getRow(&last_data, current_dat);
+            get_res = passive_buff->getRow(&last_data, current_dat);
+            std::visit(*get_dat_res, get_res);
+            if (get_dat_res->ret_data_numbers != current_dat) {
+              break;
+            }
             res_var = file->writeFile<T>(last_data);
+            passive_buff->clear();
           } else {
-            ret = passive_buff->getRow(&buff_data, buff_size);
+            get_res = passive_buff->getRow(&buff_data, buff_size);
+            std::visit(*get_dat_res, get_res);
+            if (get_dat_res->ret_data_numbers != buff_size) {
+              break;
+            }
             res_var = file->writeFile<T>(buff_data);
+            passive_buff->clear();
           }
           std::visit(*thr_stop_vis, res_var);
-          if (thr_stop_vis->break_thr || !ret) {
+          if (thr_stop_vis->break_thr) {
             passive_buff->buff_not_busy = true;
             passive_buff->thr_copy_finish.notify_all();
+            //std::cout<<"Terminate 2" <<std::endl<<std::flush;
+            break;
           }
         }
       }
@@ -2185,7 +2271,7 @@ namespace MemoryManager {
       template <typename T> requires TransType<T>
       void fromDskThr(std::stop_token stop_token) {
         size_t data_rest{file_size};
-        ReadFileData<T> read_buff(buff_size);
+        ReadFileData<T> read_buff(session_buff_size);
         variant<bool, string> res_var;
         bool res;
         unique_ptr<DskStopThrVisitor> thr_stop_vis;
@@ -2197,9 +2283,10 @@ namespace MemoryManager {
         }
        
         while (!stop_token.stop_requested()) {
+          //  Clear current (already old) buffer content and copy new data into
           passive_buff->buff_not_busy = false;
           passive_buff->clear();
-          if(data_rest < buff_size) {
+          if(data_rest < session_buff_size) {
             ReadFileData<T> read_rest(data_rest);
             res_var = file->readFile<T>(&read_rest);
             res = passive_buff->setReverseOrder(read_rest.data, read_rest.size, blk_size);
@@ -2207,18 +2294,21 @@ namespace MemoryManager {
             res_var = file->readFile<T>(&read_buff);
             res = passive_buff->setReverseOrder(read_buff.data, read_buff.size, blk_size);
           }
+          //  Terminating process condition check
           std::visit(*thr_stop_vis, res_var);
           if (thr_stop_vis->break_thr || !res) {
             passive_buff->buff_not_busy = true;
             passive_buff->thr_copy_finish.notify_all();
             continue;
           }
+          //  Buffer is ready (filled by data), waiting for next request
           data_rest -= buff_size;
           stop_io = false;
           passive_buff->buff_not_busy = true;
           passive_buff->thr_copy_finish.notify_all();
           continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
         }
+        //  Exiting buffer management thread process
         passive_buff->buff_not_busy = true;
         passive_buff->thr_copy_finish.notify_all();
       }
@@ -2251,15 +2341,12 @@ namespace MemoryManager {
         if (!dskIOThr->joinable()){
           ret = true;
         }
-        // swapBuff();
-        // stop_io = true;
-        // continue_io.notify_one();
         return ret;
       }
       void reStartThr(void) noexcept {
         swapBuff();
         stop_io = true;
-        continue_io.notify_one();
+        continue_io.notify_all();
       }
     public :
       explicit IOBuff (const size_t buff_size) 
@@ -2289,28 +2376,42 @@ namespace MemoryManager {
         log{log}
       {}
       ~IOBuff() {
-        if (dskIOThr) {
-          stopThr();
-        }
-        if (active_buff) {
-          active_buff->thr_copy_finish.notify_all();
-        }
-        if (passive_buff) {
-          passive_buff->thr_copy_finish.notify_all();
-        }
+        stopThr();
       }
-
+      
       IOBuff(const IOBuff&) = delete;
       IOBuff(const IOBuff&&) = delete;
       IOBuff& operator = (const IOBuff&) = delete;
       IOBuff& operator = (const IOBuff&&) = delete;
-      
-      void reSetSession(const FileMode* const mode) {
+      //  TODO: Add input params detailed check - packet(buffer size could be wrong!)
+      //  Add negative response with error description (variant)
+      [[nodiscard]] bool reSetSession(const FileMode* const mode) {
+        bool ret {true};
+
         if (!file) {
           file = make_unique<FileIO>(mode);
         } else {
           file.reset(new FileIO(mode));
         }
+        if (!file->file_is_open) {
+          if (log) {
+            string file_name {std::get<fs::path>(*mode).c_str()};
+            if (std::get<1>(*mode)) {
+              file_name += " for read,";
+            } else {
+              file_name += " for write,";
+            }
+            if (std::get<2>(*mode)) {
+              file_name += " bin mode";
+            } else {
+              file_name += " ascii mode";
+            }
+            string err_str {"Creating session for file - " + file_name};
+            log->errMsg("IOBuff:reSetSession", err_str);
+            return false;
+          }
+        }
+
         if (std::get<4>(*mode)) {
           this->blk_size = std::get<4>(*mode).value();
         } else {
@@ -2319,10 +2420,30 @@ namespace MemoryManager {
         active_buff = first.get();
         passive_buff = second.get();
         current_download_size = 0;
-        
+       
+
         //  Read mode - read to buffer from file
         if (std::get<1>(*mode)) {
           file_size = fs::file_size(std::get<0>(*mode));
+           //  Check if buffer could satisfy 
+          if (std::get<4>(*mode)) {
+            if (auto request_size{std::get<4>(*mode).value()}; request_size <= buff_size) {
+              auto&& possible_buffer_size = std::floor(buff_size / request_size);
+              if (possible_buffer_size >= 1) {
+                session_buff_size = possible_buffer_size * request_size;
+              } else {
+                session_buff_size = PACKET_DATA_SIZE;
+              }
+            } else {
+              session_buff_size = PACKET_DATA_SIZE;
+            }
+          } else {
+            session_buff_size = PACKET_DATA_SIZE;
+          }
+          if (passive_buff) {
+            passive_buff->buff_not_busy = false;
+          }
+          
           if (std::get<2>(*mode)) {
             if (!dskIOThr) {
               dskIOThr = make_unique<jthread> (&IOBuff::fromDskThr<byte>, this);
@@ -2338,13 +2459,15 @@ namespace MemoryManager {
               dskIOThr.reset (new jthread(&IOBuff::fromDskThr<char>, this));
             }
           }
-          while (!passive_buff->buff_not_busy.load()) {
-            passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(5), [this]{return passive_buff->buff_not_busy.load();});
+          //  Wait for passive buff will be ready, make it active and start caching process for second one
+          if (active_buff) {
+            active_buff->buff_not_busy = true;
           }
+          waitToFinishIO();
           reStartThr();
+          stop_io = true;
+          continue_io.notify_all();
         } else {  //  Write mode - write from buffer to file
-          
-         
           file_size = std::get<6>(*mode).value();
           if (std::get<2>(*mode)) {
             if (!dskIOThr) {
@@ -2379,48 +2502,68 @@ namespace MemoryManager {
               dskIOThr.reset (new jthread(&IOBuff::toDskThr<char>, this));
             }
           }
+          first->clear();
+          second->clear();
         }
+        return ret;
       }
       template <typename T> requires TransType<T>
       [[nodiscard]] bool readData(ReadFileData<T>* const data) noexcept {
         bool ret{false};
+        unique_ptr<GetDatVisitor> get_dat_res;
+        GetBuffDat get_res;
+
         if (!data) {
           return ret;
         }
-        ret = active_buff->getDat(data);
-        if (!ret) {
+
+        if (log) {
+          get_dat_res = make_unique<GetDatVisitor>(log, file.get());
+        } else {
+          get_dat_res = make_unique<GetDatVisitor>(file.get());
+        }
+
+        if (active_buff) {
+          while (!active_buff->buff_not_busy.load()) {
+             active_buff->thr_copy_finish.wait_for(active_buff->wait_thr_busy, milliseconds(5), [this]{return active_buff->buff_not_busy.load();});
+          }
+        } else {
+          return ret;
+        }
+        get_res = active_buff->getDat(data);
+        std::visit(*get_dat_res, get_res);
+        if (!get_dat_res->ret_data_numbers) {
           return ret;
         }
         if (!active_buff->getUsedSize()) {
           //  Check if buffer still in work (busy), waiting for finish
-          if (stop_io.load()) {
-            std::this_thread::sleep_for(milliseconds(1)); 
-          }
+          // if (stop_io.load()) {
+          //   std::this_thread::sleep_for(milliseconds(1)); 
+          // }
           if (passive_buff) {
-            while (!passive_buff->buff_not_busy.load()) {
-              passive_buff->thr_copy_finish.wait_for(active_buff->wait_thr_busy, milliseconds(5), [this]{return active_buff->buff_not_busy.load();});
-            }
-          reStartThr();
+            waitToFinishIO();
+            active_buff->buff_not_busy = false;
+            reStartThr();
           } else {
             return ret;
           }
           ret = true;
         }
+        //  TODO: DELETE!
         string str{data->data, data->size};
+
         return ret;
       }
       template <typename T> requires TransType<T>
       [[nodiscard]] bool writeData(ReadFileData<T>* const data) noexcept {
         bool ret{false};
-        size_t free_buff_space{buff_size - active_buff->getUsedSize()};
         if (!data) {
           return ret;
         }
-        if (data->size > active_buff->getTotalSize()) {
+        if (data->size > active_buff->getFreeSize()) {
           return false;
         }
         ret = active_buff->setDat(data);
-        free_buff_space -= data->size;
         if (!ret) {
           return ret;
         } else {  //  End of file check
@@ -2429,21 +2572,33 @@ namespace MemoryManager {
             while (!passive_buff->buff_not_busy.load()) {
               passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
             }
+            active_buff->buff_not_busy = false;
             reStartThr();
             return true;
           }
         }
-        //  Check if is a time to change buffer because current one is full already
-        if (data->size > free_buff_space) {
-          //  Check if buffer still busy, waiting for finish if it is
+        if (data->size >  active_buff->getFreeSize()) {
           while (!passive_buff->buff_not_busy.load()) {
-            passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
+              passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
           }
+          active_buff->buff_not_busy = false;
           reStartThr();
-          passive_buff->buff_not_busy = false;
           ret = true;
         }
         return ret;
+      }
+      bool waitToFinishIO (size_t time_to_wait = 1000000) const noexcept {
+        bool ret {false};
+        size_t count {0};
+
+         while (!passive_buff->buff_not_busy.load()) {
+              passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
+              ++count;
+         }
+         if (count < time_to_wait) {
+          ret = true;
+         }
+         return ret;
       }
   };
   
@@ -2472,12 +2627,15 @@ namespace MemoryManager {
       [[nodiscard]] variant<shared_ptr<IOBuff>, bool> getBuffer(const thread::id id) noexcept {
         variant<shared_ptr<IOBuff>, bool> ret{false};
         lock_guard<mutex> lck(assign_lock);
-        if (workers_set->size() >= buff_quantity) {
-          return ret;
-        }
-        if (workers_set->find(id) != workers_set->end()) {
+        if ((workers_set->find(id) == workers_set->end()) && (workers_set->size() >= buff_quantity)) {
           return ret;
         };
+        //  Return existing buffer
+        if (workers_set->find(id) != workers_set->end()) {
+          ret = workers_set->at(id);
+          return ret;
+        }
+        //  Creating new one (until limit not acceded)
         for (auto vec : *buff_set) {
           if (ranges::find_if(*workers_set, [vec](auto work_id){ if (work_id.second == vec) return true; return false;}) == workers_set->end()){
             workers_set->emplace(make_pair(id, vec));
