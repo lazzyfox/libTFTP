@@ -2164,6 +2164,7 @@ namespace MemoryManager {
       size_t current_download_size {0};
       unique_ptr<jthread> dskIOThr;
       mutex dsk_mut;
+      mutex session_block;
       unique_lock<std::mutex> wait_cash_operation;
       condition_variable continue_io;
       atomic<bool> stop_io {false};
@@ -2176,11 +2177,13 @@ namespace MemoryManager {
         FileIO* const file{nullptr};
         bool break_thr{false};
 
-        explicit DskStopThrVisitor(jthread* const thr) : thr{thr}{}
+        explicit DskStopThrVisitor (jthread* const thr) : thr{thr}{}
         DskStopThrVisitor(jthread* const thr, shared_ptr<Log> log, FileIO* const file) : thr{thr}, log{log}, file{file}{}
         void operator()(const bool &condition) {
-          if (!condition) {
-            thr->request_stop();
+          if (!condition && thr) {
+            if (thr->joinable()) {
+              thr->request_stop();
+            }
             break_thr = true;
           }
         }
@@ -2214,7 +2217,6 @@ namespace MemoryManager {
       template <typename T> requires TransType<T>
       void toDskThr(std::stop_token stop_token) {
         T buff_data[buff_size];
-      //  bool ret {false};
         variant<bool, string> res_var;
         unique_ptr<DskStopThrVisitor> thr_stop_vis;
         unique_ptr<GetDatVisitor> get_dat_res;
@@ -2306,7 +2308,9 @@ namespace MemoryManager {
           stop_io = false;
           passive_buff->buff_not_busy = true;
           passive_buff->thr_copy_finish.notify_all();
+          std::cout<<"Buffer starting to wait"<< std::endl<<std::flush;
           continue_io.wait(wait_cash_operation, [this]{return stop_io.load();});
+          std::cout<<"Buffer activated"<< std::endl<<std::flush;
         }
         //  Exiting buffer management thread process
         passive_buff->buff_not_busy = true;
@@ -2317,37 +2321,51 @@ namespace MemoryManager {
         passive_buff = active_buff;
         active_buff = tmp;
       }
-      bool stopThr(void) {
+      bool stopThr(void) noexcept {
         bool ret {false};
         stop_io = true;
 
         if (!wait_cash_operation.owns_lock()) {
           return true;
         }
-        auto token = dskIOThr->get_stop_token();
-        if (!token.stop_possible())  {
-          return ret;
-        }
-        if (token.stop_requested()) {
+        if (dskIOThr) {
+          auto token = dskIOThr->get_stop_token();
+          if (!token.stop_possible())  {
+            return ret;
+          }
+          if (token.stop_requested()) {
+            if (dskIOThr->joinable()) {
+              dskIOThr->join();
+              if (!dskIOThr->joinable()){
+                ret = true;
+              } else {
+                ret = false;
+              }
+            }
+            return ret;
+          }
+          ret = dskIOThr->request_stop();
+          continue_io.notify_one();
+          if (!ret) {
+            return ret;
+          }
           dskIOThr->join();
-          return true;
+          if (!dskIOThr->joinable()){
+            ret = true;
+          }
+        } else {
+          ret  = true;
         }
-        ret = dskIOThr->request_stop();
-        continue_io.notify_one();
-        if (!ret) {
-          return ret;
-        }
-        dskIOThr->join();
-        if (!dskIOThr->joinable()){
-          ret = true;
-        }
+        
         return ret;
       }
+
       void reStartThr(void) noexcept {
         swapBuff();
         stop_io = true;
         continue_io.notify_all();
       }
+      
     public :
       explicit IOBuff (const size_t buff_size) 
       : first{make_unique<PoolAllocator>(buff_size)}, 
@@ -2387,7 +2405,7 @@ namespace MemoryManager {
       //  Add negative response with error description (variant)
       [[nodiscard]] bool reSetSession(const FileMode* const mode) {
         bool ret {true};
-
+        session_block.lock();
         if (!file) {
           file = make_unique<FileIO>(mode);
         } else {
@@ -2420,8 +2438,6 @@ namespace MemoryManager {
         active_buff = first.get();
         passive_buff = second.get();
         current_download_size = 0;
-       
-
         //  Read mode - read to buffer from file
         if (std::get<1>(*mode)) {
           file_size = fs::file_size(std::get<0>(*mode));
@@ -2460,13 +2476,14 @@ namespace MemoryManager {
             }
           }
           //  Wait for passive buff will be ready, make it active and start caching process for second one
+          do {
+            std::this_thread::sleep_for(5ms);
+          } while (!dskIOThr->joinable());
           if (active_buff) {
-            active_buff->buff_not_busy = true;
+            active_buff->buff_not_busy = false;
           }
           waitToFinishIO();
           reStartThr();
-          stop_io = true;
-          continue_io.notify_all();
         } else {  //  Write mode - write from buffer to file
           file_size = std::get<6>(*mode).value();
           if (std::get<2>(*mode)) {
@@ -2492,6 +2509,9 @@ namespace MemoryManager {
               while (!passive_buff->buff_not_busy.load()) {
                 passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(5), [this]{return passive_buff->buff_not_busy.load();});
               }
+              while (!active_buff->buff_not_busy.load()) {
+                active_buff->thr_copy_finish.wait_for(active_buff->wait_thr_busy, milliseconds(5), [this]{return active_buff->buff_not_busy.load();});
+              }
               if (passive_buff) {
                 passive_buff->buff_not_busy = true;
               }
@@ -2514,6 +2534,57 @@ namespace MemoryManager {
         GetBuffDat get_res;
 
         if (!data) {
+          session_block.unlock();
+          return ret;
+        }
+
+        if (log) {
+          get_dat_res = make_unique<GetDatVisitor>(log, file.get());
+        } else {
+          get_dat_res = make_unique<GetDatVisitor>(file.get());
+        }
+
+        if (active_buff) {
+          while (!active_buff->buff_not_busy.load()) {
+            active_buff->thr_copy_finish.wait_for(active_buff->wait_thr_busy, milliseconds(5), [this]{return active_buff->buff_not_busy.load();});
+          }
+        } else {
+          session_block.unlock();
+          return ret;
+        }
+        get_res = active_buff->getDat(data);
+        std::visit(*get_dat_res, get_res);
+        if (!get_dat_res->ret_data_numbers) {
+          session_block.unlock();
+          return ret;
+        }
+        if (!active_buff->getUsedSize()) {
+          if (passive_buff) {
+            waitToFinishIO();
+            active_buff->buff_not_busy = false;
+            reStartThr();
+          } else {
+            session_block.unlock();
+            return ret;
+          }
+          ret = true;
+        }
+        session_block.unlock();
+        return ret;
+      }
+
+      template <typename T> requires TransType<T>
+      [[nodiscard]] GetBuffDat readTotalFile (ReadFileData<T>* const data) {
+        GetBuffDat ret {(size_t)0};
+        unique_ptr<GetDatVisitor> get_dat_res;
+        GetBuffDat get_res;
+
+        if (!data) {
+          string file_name {"IO for file - "};
+          file_name += file->getFilePath().string();
+          file_name += " error : Wrong data container - there is no space for requested data";
+          ret = file_name;
+          session_block.unlock();
           return ret;
         }
 
@@ -2528,43 +2599,55 @@ namespace MemoryManager {
              active_buff->thr_copy_finish.wait_for(active_buff->wait_thr_busy, milliseconds(5), [this]{return active_buff->buff_not_busy.load();});
           }
         } else {
+          string file_name {"IO for file - "};
+          file_name += file->getFilePath().string();
+          file_name += " error : Cant access to buffer";
+          ret = file_name;
+          session_block.unlock();
           return ret;
         }
         get_res = active_buff->getDat(data);
         std::visit(*get_dat_res, get_res);
         if (!get_dat_res->ret_data_numbers) {
+          ret = (size_t)0;
+          stopThr();
+          session_block.unlock();
           return ret;
+        } else {
+          ret = get_dat_res->ret_data_numbers;
         }
+        //  Update (get from file and set new content to) buffer
         if (!active_buff->getUsedSize()) {
-          //  Check if buffer still in work (busy), waiting for finish
-          // if (stop_io.load()) {
-          //   std::this_thread::sleep_for(milliseconds(1)); 
-          // }
           if (passive_buff) {
             waitToFinishIO();
             active_buff->buff_not_busy = false;
             reStartThr();
           } else {
+            string file_name {"IO for file - "};
+            file_name += file->getFilePath().string();
+            file_name += " error : Cant access buffer";
+            ret = file_name;
+            session_block.unlock();
             return ret;
           }
-          ret = true;
         }
-        //  TODO: DELETE!
-        string str{data->data, data->size};
-
-        return ret;
+        session_block.unlock();
+        return ret; 
       }
-      template <typename T> requires TransType<T>
+       template <typename T> requires TransType<T>
       [[nodiscard]] bool writeData(ReadFileData<T>* const data) noexcept {
         bool ret{false};
         if (!data) {
+          session_block.unlock();
           return ret;
         }
         if (data->size > active_buff->getFreeSize()) {
+          session_block.unlock();
           return false;
         }
         ret = active_buff->setDat(data);
         if (!ret) {
+          session_block.unlock();
           return ret;
         } else {  //  End of file check
           //  Stop uploading
@@ -2574,6 +2657,7 @@ namespace MemoryManager {
             }
             active_buff->buff_not_busy = false;
             reStartThr();
+            session_block.unlock();
             return true;
           }
         }
@@ -2585,6 +2669,7 @@ namespace MemoryManager {
           reStartThr();
           ret = true;
         }
+        session_block.unlock();
         return ret;
       }
       bool waitToFinishIO (size_t time_to_wait = 1000000) const noexcept {
@@ -2592,8 +2677,8 @@ namespace MemoryManager {
         size_t count {0};
 
          while (!passive_buff->buff_not_busy.load()) {
-              passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(1) ,[this]{return passive_buff->buff_not_busy.load();});
-              ++count;
+            passive_buff->thr_copy_finish.wait_for(passive_buff->wait_thr_busy, milliseconds(5) ,[this]{return passive_buff->buff_not_busy.load();});
+            ++count;
          }
          if (count < time_to_wait) {
           ret = true;

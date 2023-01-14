@@ -5,6 +5,7 @@
 #include <iostream>
 #include <future>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "../src/libTFTP.hpp"
 
@@ -1458,7 +1459,6 @@ class MemMgrRead : public ::testing::Test {
 };
 
 TEST_F (MemMgrRead, CheckReadCharBuff) {
-  const string ex_str_1{"567890"};
   string str;
   ReadFileData<char> data{2};
   
@@ -1469,7 +1469,7 @@ TEST_F (MemMgrRead, CheckReadCharBuff) {
     string tmp_data{data.data, 2};
     str += tmp_data;
   }
-  EXPECT_STREQ(str.c_str(), ex_str_1.c_str());
+  EXPECT_STREQ(str.c_str(), ex_str.c_str());
 }
 
 TEST_F (MemMgrRead, CheckReadCharFile) {
@@ -1557,7 +1557,7 @@ class MemMgrMain : public ::testing::Test {
     string test_str2{"1234567890abcdefghijklmnopqrstuvwxyz"};
     fs::path tmp_path1{fs::temp_directory_path()}, tmp_path2{fs::temp_directory_path()};
     BuffMan buff{2, 6};
-    FileMode filemode1, filemode2;
+    FileMode filemode1, filemode2, filemode_read_1, filemode_read_2;
     std::ifstream ifs;
     std::string str;
 
@@ -1576,6 +1576,15 @@ class MemMgrMain : public ::testing::Test {
       std::get<4>(filemode2) = 2;
       std::get<6>(filemode2) = 36;
       
+      std::get<0>(filemode_read_1) = tmp_path1;
+      std::get<1>(filemode_read_1) = true;
+      std::get<2>(filemode_read_1) = false;
+      std::get<4>(filemode_read_1) = 2;
+       
+      std::get<0>(filemode_read_2) = tmp_path2;
+      std::get<1>(filemode_read_2) = true;
+      std::get<2>(filemode_read_2) = false;
+      std::get<4>(filemode_read_2) = 2;
     }
     void TearDown() override {
       if (fs::exists(tmp_path1)) {
@@ -1592,7 +1601,6 @@ TEST_F (MemMgrMain, CheckWriteThr) {
   const thread::id thr_id_2 {2};
   auto doFileWriteThr = [this](const FileMode& filemode, const string& str, const size_t io_size, const thread::id thr_id) {
       bool ret {true};
-      //const thread::id thr_id {std::this_thread::get_id()};
       ReadFileData<char> data{io_size};
       shared_ptr<IOBuff> buff_point;
       bool new_session;
@@ -1602,7 +1610,6 @@ TEST_F (MemMgrMain, CheckWriteThr) {
         buff_point = std::move(std::get<shared_ptr<IOBuff>>(buff_access));
         new_session = buff_point->reSetSession(&filemode);
       } else {
-        std::cout<<"Reset session failed"<<std::flush;
         return false;
       }
       
@@ -1611,7 +1618,6 @@ TEST_F (MemMgrMain, CheckWriteThr) {
         ret = buff_point->writeData<char>(&data);
         std::this_thread::sleep_for(milliseconds(10));
         if (!ret) {
-          std::cout<<"Write operation failed on count  " <<count<< std::flush;
           return false;
         }
         buff_point->waitToFinishIO();
@@ -1642,10 +1648,6 @@ TEST_F (MemMgrMain, CheckWriteThr) {
       fs::remove(tmp_path2);
     }
 
-    // auto ret = doFileWriteThr(filemode1, test_str1, 2, thr_id_1);
-    // if (!ret) {
-    //   std::cout<<"Wrong"<<std::flush;
-    // }
     thr_s1 = std::async(std::launch::async, doFileWriteThr, filemode2, test_str2, 2, thr_id_1);
     thr_s2 = std::async(std::launch::async, doFileWriteThr, filemode1, test_str1, 2, thr_id_2);
     ASSERT_TRUE(thr_s1.get());
@@ -1662,6 +1664,162 @@ TEST_F (MemMgrMain, CheckWriteThr) {
     EXPECT_STREQ(str.c_str(), test_str1.c_str());
 }
 
+TEST_F (MemMgrMain, CheckReadWriteThr) {
+  const thread::id thr_id_1 {1};
+  const thread::id thr_id_2 {2};
+
+  struct ReadRes {
+    bool res {false};
+    string str;
+    void operator()(bool ret) {
+      str.clear();
+      res = ret;
+    }
+    void operator()(string ret) {
+      res  = true;
+      str = ret;
+    }
+    void clear (void) {
+      res = false;
+      str.clear();
+    }
+  } read_res;
+
+  auto doFileWriteThr = [this](const FileMode& filemode, const string& str, const size_t io_size, const thread::id thr_id) {
+    bool ret {true};
+    ReadFileData<char> data{io_size};
+    shared_ptr<IOBuff> buff_point;
+    bool new_session;
+
+    auto buff_access = buff.getBuffer(thr_id);
+    if (std::holds_alternative<shared_ptr<IOBuff>>(buff_access)) {
+      buff_point = std::move(std::get<shared_ptr<IOBuff>>(buff_access));
+      new_session = buff_point->reSetSession(&filemode);
+    } else {
+      return false;
+    }
+    
+    for (auto count = 0; count < str.size(); count += io_size) {
+      data.setData(str.substr(count, io_size));
+      ret = buff_point->writeData<char>(&data);
+      std::this_thread::sleep_for(milliseconds(10));
+      if (!ret) {
+        return false;
+      }
+      buff_point->waitToFinishIO();
+    }
+    return ret;
+  };
+  auto doFileReadThr = [this](const FileMode& filemode, const size_t io_size, const thread::id thr_id) {
+    variant<bool, string> ret{false};
+    bool read_res {true}; 
+    string tmp_string;
+    ReadFileData<char> data{io_size};
+    shared_ptr<IOBuff> buff_point;
+    bool new_session;
+    GetBuffDat read_data;
+
+    auto buff_access = buff.getBuffer(thr_id);
+    if (std::holds_alternative<shared_ptr<IOBuff>>(buff_access)) {
+      buff_point = std::move(std::get<shared_ptr<IOBuff>>(buff_access));
+      new_session = buff_point->reSetSession(&filemode);
+      if (!new_session) {
+        return ret;
+      }
+    } else {
+      return ret;
+    }
+
+    while (read_res) {
+      read_data = buff_point->readTotalFile<char>(&data);
+      if (auto data_pointer {std::get_if<size_t>(&read_data)}; data_pointer) {
+        if (*data_pointer) {
+          string buff {data.data, data.size};
+          tmp_string += buff;
+        } else {
+          read_res = false;
+          continue;
+        }
+      } else {
+        read_res = false;
+      }
+    }
+    ret = tmp_string;
+    return ret;
+  };
+  auto syncFile = [](const fs::path& path) {
+    int fd = open(path.c_str(), O_RDONLY);
+    fsync(fd);
+    close(fd);
+  };
+
+  auto waitRead = [](const std::future<variant<bool, string>>& res) {
+    if (!res.valid()) {
+      res.wait();
+    }
+  };
+  auto waitWrite = [syncFile](const std::future<bool>& res, const fs::path& path) {
+    if (!res.valid()) {
+      res.wait();
+    }
+    syncFile(path);
+  };
+  
+  auto thr_s1 = std::async(std::launch::async, doFileWriteThr, filemode1, test_str1, 2, thr_id_1);
+  auto thr_s2 = std::async(std::launch::async, doFileWriteThr, filemode2, test_str2, 2, thr_id_2);
+
+  waitWrite(thr_s1, tmp_path1);
+  
+  ASSERT_TRUE(thr_s1.get());
+  ASSERT_TRUE(fs::exists(tmp_path1));
+
+  auto thr_read_1 = std::async(std::launch::async, doFileReadThr, filemode_read_1, 2, thr_id_1);
+  waitWrite(thr_s2, tmp_path2);
+  ASSERT_TRUE(thr_s2.get());
+  ASSERT_TRUE(fs::exists(tmp_path2));
+  auto thr_read_2 = std::async(std::launch::async, doFileReadThr, filemode_read_2, 2, thr_id_2);
+  waitRead(thr_read_1);
+  auto thr_read_res{thr_read_1.get()};
+  std::visit(read_res, thr_read_res);
+  ASSERT_TRUE(read_res.res);
+  EXPECT_STREQ(read_res.str.c_str(), test_str1.c_str());
+  read_res.clear();
+  waitRead(thr_read_2);
+  thr_read_res = thr_read_2.get();
+  std::visit(read_res, thr_read_res);
+  ASSERT_TRUE(read_res.res);
+  EXPECT_STREQ(read_res.str.c_str(), test_str2.c_str());
+  read_res.clear();
+  
+  if (fs::exists(tmp_path1)) {
+    fs::remove(tmp_path1);
+  }
+  if (fs::exists(tmp_path2)) {
+    fs::remove(tmp_path2);
+  }
+
+  thr_s1 = std::async(std::launch::async, doFileWriteThr, filemode2, test_str2, 2, thr_id_1);
+  thr_s2 = std::async(std::launch::async, doFileWriteThr, filemode1, test_str1, 2, thr_id_2);
+  waitWrite(thr_s1, tmp_path1);
+  ASSERT_TRUE(thr_s1.get());
+  ASSERT_TRUE(fs::exists(tmp_path1));
+  thr_read_1 = std::async(std::launch::async, doFileReadThr, filemode_read_2, 2, thr_id_1);
+  waitWrite(thr_s2, tmp_path2);
+  ASSERT_TRUE(thr_s2.get());
+  ASSERT_TRUE(fs::exists(tmp_path2));
+  thr_read_2 = std::async(std::launch::async, doFileReadThr, filemode_read_1, 2, thr_id_2);
+  waitRead(thr_read_1);
+  thr_read_res = thr_read_1.get();
+  std::visit(read_res, thr_read_res);
+  ASSERT_TRUE(read_res.res);
+  EXPECT_STREQ(read_res.str.c_str(), test_str2.c_str());
+  read_res.clear();
+  waitRead(thr_read_2);
+  thr_read_res = thr_read_2.get();
+  std::visit(read_res, thr_read_res);
+  ASSERT_TRUE(read_res.res);
+  EXPECT_STREQ(read_res.str.c_str(), test_str1.c_str());
+}
 
 GTEST_API_ int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
