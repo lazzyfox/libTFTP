@@ -1,7 +1,7 @@
-#include "../src/libTFTP.hpp"
+#include "../../src/libTFTP.hpp"
 
 
-using namespace TFTPSrvLib;
+using namespace TFTPClnLib;
 
 int main(int argc, char** argv)
 {

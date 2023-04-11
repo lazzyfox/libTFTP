@@ -16,42 +16,56 @@ char test[] = { 't', 'e', 's', 't' };
 
 TEST(TwinMapData, IntString) {
   TwinMap<int, std::string> twin;
+  int one{1}, two{2}, three{3};
   std::string ex_str1{"one"}, ex_str2{"two"}, ex_str3{"three"};
-  twin.set(1,  ex_str1);
-  twin.set(2,  ex_str2);
-  twin.set(3,  ex_str3);
-  auto int_test1{twin.get(1)};
-  auto int_test2{twin.get(2)};
-  auto int_test3{twin.get(3)};
-  auto str_test1{twin.get("one")};
-  auto str_test2{twin.get("two")};
-  auto str_test3{twin.get("three")};
+  ASSERT_TRUE(twin.set(one, ex_str1));
+  ASSERT_TRUE(twin.set(two, ex_str2));
+  ASSERT_TRUE(twin.set(three, ex_str3));
+  auto int_test1{twin.get(one)};
+  ASSERT_TRUE(int_test1.has_value());
+  auto int_test2{twin.get(two)};
+  ASSERT_TRUE(int_test2.has_value());
+  auto int_test3{twin.get(three)};
+  ASSERT_TRUE(int_test3.has_value());
+  auto str_test1{twin.get(ex_str1)};
+  ASSERT_TRUE(str_test1.has_value());
+  auto str_test2{twin.get(ex_str2)};
+  ASSERT_TRUE(str_test2.has_value());
+  auto str_test3{twin.get(ex_str3)};
+  ASSERT_TRUE(str_test3.has_value());
 
-  EXPECT_EQ(1, str_test1);
-  EXPECT_EQ(2, str_test2);
-  EXPECT_EQ(3, str_test3);
-  EXPECT_STREQ(ex_str1.c_str(), int_test1.c_str());
-  EXPECT_STREQ(ex_str2.c_str(), int_test2.c_str());
-  EXPECT_STREQ(ex_str3.c_str(), int_test3.c_str());
+  EXPECT_EQ(1, str_test1.value());
+  EXPECT_EQ(2, str_test2.value());
+  EXPECT_EQ(3, str_test3.value());
+  EXPECT_STREQ(ex_str1.c_str(), int_test1.value().c_str());
+  EXPECT_STREQ(ex_str2.c_str(), int_test2.value().c_str());
+  EXPECT_STREQ(ex_str3.c_str(), int_test3.value().c_str());
 }
 
 TEST(TwinMapData, IntStringLst) {
+  int one{1}, two{2}, three{3};
   std::string ex_str1{"one"}, ex_str2{"two"}, ex_str3{"three"};
-  TwinMap<int, std::string> twin = {{1, "one"}, {2, "two"}, {3, "three"}};
+  TwinMap<int, std::string> twin{{one, ex_str1}, {two, ex_str2}, {three, ex_str3}};
 
   auto int_test1{twin.get(1)};
+  ASSERT_TRUE(int_test1.has_value());
   auto int_test2{twin.get(2)};
+  ASSERT_TRUE(int_test2.has_value());
   auto int_test3{twin.get(3)};
+  ASSERT_TRUE(int_test3.has_value());
   auto str_test1{twin.get("one")};
+  ASSERT_TRUE(str_test1.has_value());
   auto str_test2{twin.get("two")};
+  ASSERT_TRUE(str_test2.has_value());
   auto str_test3{twin.get("three")};
+  ASSERT_TRUE(str_test3.has_value());
 
-  EXPECT_EQ(1, str_test1);
-  EXPECT_EQ(2, str_test2);
-  EXPECT_EQ(3, str_test3);
-  EXPECT_STREQ(ex_str1.c_str(), int_test1.c_str());
-  EXPECT_STREQ(ex_str2.c_str(), int_test2.c_str());
-  EXPECT_STREQ(ex_str3.c_str(), int_test3.c_str());
+  EXPECT_EQ(1, str_test1.value());
+  EXPECT_EQ(2, str_test2.value());
+  EXPECT_EQ(3, str_test3.value());
+  EXPECT_STREQ(ex_str1.c_str(), int_test1.value().c_str());
+  EXPECT_STREQ(ex_str2.c_str(), int_test2.value().c_str());
+  EXPECT_STREQ(ex_str3.c_str(), int_test3.value().c_str());
 }
 
 //  ReadFile Data
@@ -1423,6 +1437,99 @@ TEST(PoolAllocator, setRow_byte_sequence_check) {
   EXPECT_STREQ (res_str.c_str(), str.c_str());  
 }
 
+class ClnReadWriteReq : public ::testing::Test {
+  protected:
+    const string filename{"ak.txt"};
+    const TFTPShortNames::TransferMode tr_ascii{TFTPShortNames::TransferMode::netascii};
+    const TFTPShortNames::TransferMode tr_octet{TFTPShortNames::TransferMode::octet};
+    const TFTPShortNames::TFTPOpeCode read_code {TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ};
+    const TFTPShortNames::TFTPOpeCode write_code {TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE};
+    optional<size_t> t_size{1024};
+    optional<size_t> blk_size{512};
+    optional<uint16_t> timeout{6};
+};
+
+TEST_F(ClnReadWriteReq, readEasyASCII) {
+  using namespace TFTPClnDataType;
+  const size_t sz{18};
+  const char read_data[]{ "\0\1ak.txt\0netascii\0" };
+  WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> wrrq{filename, tr_ascii, sz};
+  auto data{wrrq.getData()};
+  ASSERT_EQ(18, data.second);
+  string str{data.first, data.second};
+  EXPECT_STREQ(str.c_str(), read_data);
+}
+
+TEST_F(ClnReadWriteReq, readEasyOctet) {
+  using namespace TFTPClnDataType;
+  const size_t sz{16};
+  const char read_data[]{ "\0\1ak.txt\0octet\0" };
+  WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> wrrq{filename, tr_octet, sz};
+  auto data{wrrq.getData()};
+  ASSERT_EQ(16, data.second);
+  string str{data.first, data.second};
+  EXPECT_STREQ(str.c_str(), read_data);
+}
+
+TEST_F(ClnReadWriteReq, writeEasyASCII) {
+  using namespace TFTPClnDataType;
+  const size_t sz{18};
+  const char read_data[]{ "\0\2ak.txt\0netascii\0" };
+  WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE> wrrq{filename, tr_ascii, sz};
+  auto data{wrrq.getData()};
+  ASSERT_EQ(18, data.second);
+  string str{data.first, data.second};
+  EXPECT_STREQ(str.c_str(), read_data);
+}
+
+TEST_F(ClnReadWriteReq, readASCII) {
+  using namespace TFTPClnDataType;
+  const size_t sz{50};
+  const char read_data[] { '\0', '\1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '1', '0', '2', '4', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0' };
+  WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> wrrq{filename, tr_ascii, sz, t_size,  timeout, blk_size};
+  auto data{wrrq.getData()};
+  ASSERT_EQ(sz, data.second);
+  for (long unsigned int count{0}; count < data.second; ++count) {
+    EXPECT_EQ(data.first[count], read_data[count]);
+  }
+}
+
+TEST_F(ClnReadWriteReq, readOctet) {
+  using namespace TFTPClnDataType;
+  const size_t sz{48};
+  const char read_data[]{ '\0', '\1', 'a', 'k', '.', 't', 'x', 't', '\0', 'o', 'c', 't', 'e', 't', '\0', 't', 's', 'i', 'z', 'e', '\0', '1', '0', '2', '4', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0' };
+  WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> wrrq{filename, tr_octet, sz, t_size,  timeout, blk_size};
+  auto data{wrrq.getData()};
+  ASSERT_EQ(sz, data.second);
+  for (long unsigned int count{0}; count < data.second; ++count) {
+    EXPECT_EQ(data.first[count], read_data[count]);
+  }
+}
+
+TEST_F(ClnReadWriteReq, writeASCII) {
+  using namespace TFTPClnDataType;
+  const size_t sz{50};
+  const char read_data[] { '\0', '\2', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '1', '0', '2', '4', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0' };
+  WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE> wrrq{filename, tr_ascii, sz, t_size,  timeout, blk_size};
+  auto data{wrrq.getData()};
+  ASSERT_EQ(sz, data.second);
+  for (long unsigned int count{0}; count < data.second; ++count) {
+    EXPECT_EQ(data.first[count], read_data[count]);
+  }
+}
+
+TEST_F(ClnReadWriteReq, writeOctet) {
+  using namespace TFTPClnDataType;
+  const size_t sz{48};
+  const char read_data[]{ '\0', '\2', 'a', 'k', '.', 't', 'x', 't', '\0', 'o', 'c', 't', 'e', 't', '\0', 't', 's', 'i', 'z', 'e', '\0', '1', '0', '2', '4', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0' };
+  WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE> wrrq{filename, tr_octet, sz, t_size,  timeout, blk_size};
+  auto data{wrrq.getData()};
+  ASSERT_EQ(sz, data.second);
+  for (long unsigned int count{0}; count < data.second; ++count) {
+    EXPECT_EQ(data.first[count], read_data[count]);
+  }
+}
+
 class MemMgrRead : public ::testing::Test {
   protected :
     string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
@@ -1432,6 +1539,7 @@ class MemMgrRead : public ::testing::Test {
     BuffMan buff_man{1, 6};
     FileMode filemode;
     shared_ptr<IOBuff> buff_point;
+    bool session_reset_stat{false};
 
     void SetUp() override {
       tmp_path /= "test_read.txt";
@@ -1447,7 +1555,7 @@ class MemMgrRead : public ::testing::Test {
       auto tmp_buff = buff_man.getBuffer(thr_id);
       if (std::holds_alternative<shared_ptr<IOBuff>>(tmp_buff)) {
         buff_point = std::move(std::get<shared_ptr<IOBuff>>(tmp_buff));
-        buff_point->reSetSession(&filemode);
+        session_reset_stat = buff_point->reSetSession(&filemode);
       } 
     }
     
@@ -1459,30 +1567,34 @@ class MemMgrRead : public ::testing::Test {
 };
 
 TEST_F (MemMgrRead, CheckReadCharBuff) {
+  bool read_data {false};
   string str;
   ReadFileData<char> data{2};
   
   ASSERT_TRUE(fs::exists(tmp_path));
   ASSERT_TRUE(buff_point); 
   for (auto count = 0; count < 3; ++count) {
-    buff_point->readData<char>(&data);
+    read_data = buff_point->readData<char>(&data);
     string tmp_data{data.data, 2};
     str += tmp_data;
   }
+  EXPECT_TRUE (read_data);
   EXPECT_STREQ(str.c_str(), ex_str.c_str());
 }
 
 TEST_F (MemMgrRead, CheckReadCharFile) {
+  bool read_data {false};
   string str;
   ReadFileData<char> data{2};
   
   ASSERT_TRUE(fs::exists(tmp_path));
   ASSERT_TRUE(buff_point);
   for (auto count = 0; count < 18; ++count) {
-    buff_point->readData<char>(&data);
+    read_data = buff_point->readData<char>(&data);
     string tmp_data{data.data, 2};
     str += tmp_data;
   }
+  EXPECT_TRUE (read_data);
   EXPECT_STREQ(str.c_str(), test_str.c_str());
 }
 
@@ -1491,6 +1603,7 @@ class MemMgrWrite : public ::testing::Test {
     string test_str{"abcdefghijklmnopqrstuvwxyz1234567890"};
     string ex_str {"abcdef"};
     fs::path tmp_path{fs::temp_directory_path()};
+    bool session_reset_stat {false};
     thread::id thr_id;
     BuffMan buff_man{1, 6};
     FileMode filemode;
@@ -1508,7 +1621,7 @@ class MemMgrWrite : public ::testing::Test {
       auto tmp_buff = buff_man.getBuffer(thr_id);
       if (std::holds_alternative<shared_ptr<IOBuff>>(tmp_buff)) {
         buff_point = std::move(std::get<shared_ptr<IOBuff>>(tmp_buff));
-        buff_point->reSetSession(&filemode);
+        session_reset_stat = buff_point->reSetSession(&filemode);
       } 
     }
 
@@ -1609,11 +1722,14 @@ TEST_F (MemMgrMain, CheckWriteThr) {
       if (std::holds_alternative<shared_ptr<IOBuff>>(buff_access)) {
         buff_point = std::move(std::get<shared_ptr<IOBuff>>(buff_access));
         new_session = buff_point->reSetSession(&filemode);
+        if (!new_session) {
+          ret = false;
+        }
       } else {
         return false;
       }
       
-      for (auto count = 0; count < str.size(); count += io_size) {
+      for (long unsigned int count = 0; count < str.size(); count += io_size) {
         data.setData(str.substr(count, io_size));
         ret = buff_point->writeData<char>(&data);
         std::this_thread::sleep_for(milliseconds(10));
@@ -1679,7 +1795,7 @@ TEST_F (MemMgrMain, CheckReadWriteThr) {
       res  = true;
       str = ret;
     }
-    void clear (void) {
+    void clear () {
       res = false;
       str.clear();
     }
@@ -1695,11 +1811,14 @@ TEST_F (MemMgrMain, CheckReadWriteThr) {
     if (std::holds_alternative<shared_ptr<IOBuff>>(buff_access)) {
       buff_point = std::move(std::get<shared_ptr<IOBuff>>(buff_access));
       new_session = buff_point->reSetSession(&filemode);
+      if (!new_session) {
+        ret = false;
+      }
     } else {
       return false;
     }
     
-    for (auto count = 0; count < str.size(); count += io_size) {
+    for (long unsigned int count = 0; count < str.size(); count += io_size) {
       data.setData(str.substr(count, io_size));
       ret = buff_point->writeData<char>(&data);
       std::this_thread::sleep_for(milliseconds(10));

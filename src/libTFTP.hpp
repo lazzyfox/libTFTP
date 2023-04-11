@@ -94,43 +94,120 @@ SOFTWARE.
 #include <errno.h>
 
 namespace TwinMapType {
-  // template <typename T1, typename T2, template<typename... Ts1> typename Varp1,  template<typename... Ts2>  typename Varp2>
   template <typename T1, typename T2>
   class TwinMap {
     public :
       TwinMap () : t1_key{std::make_unique<std::unordered_map<T1, T2>>()}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()}{}
-      TwinMap (std::initializer_list<std::pair<const T1, T2>> lst) :  t1_key{std::make_unique<std::unordered_map<T1, T2>>(lst)}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()} {
+      TwinMap (std::initializer_list<std::pair<const T1, T2>> lst)
+      : t1_key{std::make_unique<std::unordered_map<T1, T2>>(lst)}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()} {
         auto copyMap = [this] (auto lst_pair) {
-          //T1 val = const_cast<T1>(lst_pair.first);
           t2_key->try_emplace(lst_pair.second, lst_pair.first);
         };
         std::ranges::for_each(lst, copyMap);
       }
-      bool set(T1 t1, T2 t2) {
+      TwinMap (std::initializer_list<std::pair<const T1, T2>>& lst)
+      : t1_key{std::make_unique<std::unordered_map<T1, T2>>(lst)}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()} {
+        auto copyMap = [this] (auto lst_pair) {
+          t2_key->try_emplace(lst_pair.second, lst_pair.first);
+        };
+        std::ranges::for_each(lst, copyMap);
+      }
+      bool set(T1& t1, T2& t2) {
         bool ret {true};
         try {
-          auto ret1 = t1_key->try_emplace(t1, t2);
-          auto ret2 = t2_key->try_emplace(t2, t1);
-          // if (!ret1 || !ret2) {
-          //   ret = false; 
-          // }
+          t1_key->try_emplace(t1, t2);
+          t2_key->try_emplace(t2, t1);
         } catch (...) {
           ret = false;
         }
         return ret;
       }
-      T2 get(T1 t1) {
-        return t1_key->at(t1);
+      bool set(T1&& t1, T2&& t2) {
+        bool ret {true};
+        try {
+          t1_key->try_emplace(t1, t2);
+          t2_key->try_emplace(t2, t1);
+        } catch (...) {
+          ret = false;
+        }
+        return ret;
       }
-      T1 get(T2 t2) {
-        return t2_key->at(t2);
+      std::optional<T2> get(T1& t1) {
+        std::optional<T2> ret;
+        try {
+          if (auto t1_k {t1_key->find(t1)}; t1_k != t1_key->end()) {
+            ret = t1_key->at(t1);
+          }
+        } catch (...) {
+          if (ret.has_value()) {
+            ret.reset();
+          }
+        }
+        return ret;
+      }
+      std::optional<T2> get(T1&& t1) {
+        std::optional<T2> ret;
+        try {
+          if (auto t1_k {t1_key->find(t1)}; t1_k != t1_key->end()) {
+            ret = t1_key->at(t1);
+          }
+        } catch (...) {
+          if (ret.has_value()) {
+            ret.reset();
+          }
+        }
+        return ret;
+      }
+      std::optional<T1> get(T2& t2) {
+        std::optional<T1> ret; 
+        try {
+          if (auto t2_k {t2_key->find(t2)}; t2_k != t2_key->end()) {
+          ret = t2_key->at(t2);
+        }
+        } catch (...) {
+          if (ret.has_value()) {
+            ret.reset();
+          }
+        }
+        return ret;
+      }
+      std::optional<T1> get(T2&& t2) {
+        std::optional<T1> ret; 
+        try {
+          if (auto t2_k {t2_key->find(t2)}; t2_k != t2_key->end()) {
+          ret = t2_key->at(t2);
+        }
+        } catch (...) {
+          if (ret.has_value()) {
+            ret.reset();
+          }
+        }
+        return ret;
+      }
+
+
+
+
+      bool exists(const T1& t1) const {
+        bool ret {false};
+        if (auto t1_k {t1_key->find(t1)}; t1_k != t1_key->end()) {
+          ret = true;
+        }
+        return ret;
+      }
+      bool exists(const T2& t2) const {
+        bool ret {false};
+        if (auto t2_k {t2_key->find(t2)}; t2_k != t2_key->end()) {
+          ret = true;
+        }
+        return ret;
       }
     private :
       std::unique_ptr<std::unordered_map<T1, T2>> t1_key{};
       std::unique_ptr<std::unordered_map<T2, T1>> t2_key{};
   };
 }
-namespace {
+namespace TFTPShortNames {
   namespace ranges = std::ranges;
   namespace fs = std::filesystem;
   using namespace std::chrono;
@@ -168,8 +245,7 @@ namespace {
   using std::remove_const;
   template<std::size_t... Ints> using index_sequence = std::integer_sequence<std::size_t, Ints...>;
 
-
-  constexpr string_view lib_ver{ "0.0.3" };
+  constexpr string_view lib_ver{ "0.0.5" };
   constexpr string_view lib_hello{ "TFTP srv library ver - " };
 
   constexpr uint8_t DEFAULT_PORT{ 69 };
@@ -181,6 +257,7 @@ namespace {
   constexpr uint16_t PACKET_SIZE{ 516 };
   constexpr uint8_t PACKET_ACK_SIZE{ 4 };
   constexpr uint8_t PACKET_DATA_OVERHEAD{ 5 };
+  constexpr uint8_t DATA_OVERHEAD{ 4 };
   constexpr int8_t SOCKET_ERR{ -1 };
 
   //  Packet structure
@@ -212,13 +289,26 @@ namespace {
   constexpr size_t WRONG_REQUEST_ERR_SIZE{ 47 };
   constexpr char BUSY_ERR[]{ "Server busy\0" };
   constexpr size_t BUSY_ERR_SIZE{ 12 };
+  constexpr char OPTIONS_ERR[]{ "Options are not supported\0" };
+  constexpr size_t OPTIONS_ERR_SIZE{ 26 };
 
-
+  //  Clients requests types
+  constexpr char NETASCII[]{"netascii"};
+  constexpr char OCTET[]{"octet"};
+  constexpr uint8_t NETASCII_MODE_SIZE {8};
+  constexpr uint8_t OCTET_MODE_SIZE {5};
+  
   //  RFC 1782 and above option extensions names
   constexpr char TSIZE_OPT_NAME[]{ "tsize" };
+  constexpr uint8_t TSIZE_OPT_SIZE {5};
   constexpr char TIMEOUT_OPT_NAME[]{ "timeout" };
+  constexpr uint8_t TIMEOUT_OPT_SIZE {7};
   constexpr char BLKSIZE_OPT_NAME[]{ "blksize" };
+  constexpr uint8_t BLKSIZE_OPT_SIZE {7};
   constexpr char MULTICAST_OPT_NAME[]{ "multicast" };
+  constexpr uint8_t MULTICAST_OPT_SIZE {9};
+
+  enum class TransferMode : uint8_t {netascii, octet, mail};
 
   enum class OptExtent : uint8_t { tsize, timeout, blksize, multicast };
 
@@ -281,7 +371,7 @@ namespace {
     Options_are_not_supported
   };
 
-  enum class LogSeverety : uint8_t { Error, Warning, Information, Debug };
+  enum class LogSeverity : uint8_t { Error, Warning, Information, Debug };
   constexpr string_view hello{ "Hello from TFTP server V 0.1" };
 
   using PacketContent = tuple<TFTPOpeCode, optional<TFTPError>, optional<string_view>, optional<TFTPMode>, optional<uint16_t>>;
@@ -314,6 +404,15 @@ namespace {
                                                      {6, TFTPError::File_exists},
                                                      {7, TFTPError::No_such_user},
                                                      {8, TFTPError::Options_are_not_supported} };
+  const unordered_map<TFTPError, char> ErrorCodeChar{{TFTPError::Not_defined, '0'},
+                                                     {TFTPError::File_not_found, '1'},
+                                                     {TFTPError::Access_Violation, '2'},
+                                                     {TFTPError::Disk_full_or_Quota_exceeded, '3'},
+                                                     {TFTPError::Illegal_TFTP_operation, '4'},
+                                                     {TFTPError::Unknown_port_number, '5'},
+                                                     {TFTPError::File_exists, '6'},
+                                                     {TFTPError::No_such_user, '7'},
+                                                     {TFTPError::Options_are_not_supported, '8'}};
   const unordered_map<string, OptExtent> OptExtGet{ {"tsize", OptExtent::tsize},
                                                     {"timeout", OptExtent::timeout},
                                                     {"blksize", OptExtent::blksize},
@@ -323,6 +422,10 @@ namespace {
                                                     {OptExtent::blksize, "blksize"},
                                                     {OptExtent::multicast, "multicast"} };
   
+}
+
+namespace TFTPDataType {
+  using namespace TFTPShortNames;
 
   //  Read data from file to send as a packet to client
   template <typename T> requires TransType<T>
@@ -393,7 +496,6 @@ namespace {
   // TODO: Check htons/ntohs methods
   template <typename T> requires TransType<T>
   struct PacketTools {
-    unsigned char hi, lo;
     tuple<TFTPOpeCode,         //  Operation Code
       optional<TFTPError>, //  Error ID
       optional<TFTPMode>,  //  Transfer mode
@@ -403,10 +505,6 @@ namespace {
     > packet_frame_structure;
 
     std::function<void(int, T*)> getData = [this](int opcode, T* pack) {
-      //Block number
-//       hi = pack[2];
-//       lo = pack[3];
-//       auto block_number {(hi<<8)|lo};
       auto block_number{ ntohs((uint16_t)pack[2]) };
       std::get<0>(packet_frame_structure) = OptCode.at(opcode);
       std::get<1>(packet_frame_structure) = optional<TFTPError>{};
@@ -416,10 +514,6 @@ namespace {
       std::get<5>(packet_frame_structure) = optional<uint16_t>(sizeof(pack) - PACKET_DATA_OVERHEAD);
     };
     std::function<void(int, T*)> getACK = [this](int opcode, T* pack) {
-      //Block number
-//       hi = pack[2];
-//       lo = pack[3];
-//       auto block_number {(hi<<8)|lo};
       auto block_number{ ntohl((uint16_t)pack[2]) };
       std::get<0>(packet_frame_structure) = OptCode.at(opcode);
       std::get<1>(packet_frame_structure) = optional<TFTPError>{};
@@ -429,10 +523,6 @@ namespace {
       std::get<5>(packet_frame_structure) = optional<uint16_t>{};
     };
     std::function<void(int, T*)> getERROR = [this](int opcode, T* pack) {
-      //Error number
-//       hi = pack[2];
-//       lo = pack[3];
-//       auto error_code {(hi<<8)|lo};
       uint8_t error_code{ (uint8_t)pack[2] };
       std::get<0>(packet_frame_structure) = OptCode.at(opcode);
       std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
@@ -512,7 +602,7 @@ namespace {
       bool ret{ false };
       uint16_t opcode;
 
-      //  Network operation code format to host form
+      //  Network operation code format to host
       auto netToHost = [](char* str_code) {
         uint16_t net_code, host_code;
         memcpy(&net_code, str_code, 2);
@@ -837,6 +927,77 @@ namespace {
       }
       return ret;
     }
+    [[nodiscard]] optional<uint16_t> getBlockNumber(void) const noexcept {return std::get<3>(packet_frame_structure);}
+    [[nodiscard]] TFTPOpeCode getOpCode(void) const noexcept {return std::get<TFTPOpeCode>(packet_frame_structure);}
+  };
+  //  Getting fixed size data packet from client
+  template <typename T> requires TransType<T>
+  struct RecPacket final : public Packet<T>, public PacketTools<T> {
+    // Data packet datagram size
+    RecPacket(size_t data_size) : Packet<T>(data_size + DATA_OVERHEAD), PacketTools<T>(){}
+    bool pacDeCode(void) {
+      bool ret {true};
+      auto getData = [this](void) {
+        bool ret{ true };
+        char blk_num[2];
+        uint16_t opcode, net_form;
+
+        if (Packet<T>::packet_size < DATA_MIN_SIZE) {
+          return false;
+        }
+        
+        memcpy(&net_form, Packet<T>::packet, 2);
+        opcode = ntohs(net_form);
+        //Block number
+        memcpy(blk_num, &Packet<T>::packet[2], sizeof(uint16_t));
+        int block_number{std::stoi(blk_num)};
+        if (OptCode.contains(opcode)) {
+          std::get<0>(PacketTools<T>::packet_frame_structure) = OptCode.at(opcode);
+        } else {
+          return false;
+        }
+        std::get<3>(PacketTools<T>::packet_frame_structure) = optional<uint16_t>(block_number);
+        std::get<4>(PacketTools<T>::packet_frame_structure) = optional<uint16_t>(5);
+        std::get<5>(PacketTools<T>::packet_frame_structure) = optional<uint16_t>(Packet<T>::packet_size);
+        return ret;
+      };
+      auto getError = [this](void) {
+        bool ret{ true };
+        char blk_num[2];
+
+        if (Packet<T>::packet_size < ERROR_MIN_SIZE) {
+          return false;
+        }
+
+        //Error number
+        memcpy(blk_num, &Packet<T>::packet[2], sizeof(uint16_t));
+        uint16_t error_code{(uint16_t) std::stoi(blk_num)};
+        if (ErrorCode.contains(error_code)) {
+          std::get<1>(PacketTools<T>::packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
+        } else {
+          return false;
+        }
+        std::get<4>(PacketTools<T>::packet_frame_structure) = optional<uint16_t>{ 5 };
+        std::get<5>(PacketTools<T>::packet_frame_structure) = optional<uint16_t>{ Packet<T>::packet_size};
+        return ret;
+      };
+      ret = getData();
+      if (!ret) {
+        ret = getError();
+      }
+      return ret;
+    }
+    optional<pair<T*, size_t>> getData(void) const {
+      optional<pair<T*, size_t>> ret;
+      size_t sz {0};
+      auto data_end{std::get<5>(PacketTools<T>::packet_frame_structure)};
+      auto data_begin {std::get<4>(PacketTools<T>::packet_frame_structure)};
+      if (data_end.has_value() && data_begin.has_value()) {
+        sz = data_end.value() - data_begin.value();
+        ret =  make_pair(Packet<T>::packet, sz);
+      }
+      return ret;
+    }
   };
   // Send data to client (according clients download request)
   template <typename T> requires TransType<T>
@@ -870,9 +1031,6 @@ namespace {
   struct DataPacket final : Packet<T>, PacketTools<T> {
     DataPacket(size_t size) : Packet<T>{ size * 2 * sizeof(uint16_t) }, PacketTools<T>{} {}
     void makeFrameStruct(void) noexcept {
-      //      hi = packet[0];
-      //      lo = packet[1];
-          //  auto opcode {(hi<<8)|lo};
       uint16_t net_code;
       memcpy(&net_code, Packet<T>::packet, sizeof(uint16_t));
       const auto opcode{ ntohs(net_code) };
@@ -884,11 +1042,9 @@ namespace {
       PacketTools<T>::setDataFrame(Packet<T>::packet, packet_number, data);
     }
     ~DataPacket() = default;
-
   };
   // RFC 783-1350 (Oldfashinal) request acknowledgement packet 
   struct ACKPacket final : BasePacket <PACKET_ACK_SIZE, char> {
-
     const uint16_t op_code{ htons(4) };
     ACKPacket() = default;
     ACKPacket(const uint16_t pack_number) { setNumber(pack_number); };
@@ -908,7 +1064,8 @@ namespace {
                                                        {TFTPError::Unknown_port_number, 5},
                                                        {TFTPError::File_exists, 6},
                                                        {TFTPError::No_such_user, 7} };
-    ErrorPacket(const uint8_t size, const TFTPError code, const char* msg) : Packet{ size } {
+    //  Error message has 5 byte overhead - 2 op_code, 2 error code, 1 -terminating 0                                                       
+    ErrorPacket(const size_t err_msg_size, const TFTPError code, const char* msg) : Packet{ err_msg_size + PACKET_DATA_OVERHEAD } {
       constexpr uint16_t op_code{ 5 };
       const ushort err_code{ CodeConv.at(code) };
       clear();
@@ -999,10 +1156,86 @@ namespace {
       memcpy(packet+2, draft_packet, pos + 1);
     }
   };
+}
+namespace TFTPClnDataType {
+  using namespace TFTPShortNames;
+  using namespace TFTPDataType;
+  //  Universal class for read & write requests (depends on template op_code param)
+  template<TFTPOpeCode op_code>
+  struct WRRQ final : public Packet <char> {
+    size_t pos {0};
+    WRRQ(const string& filename, const TransferMode& trans_mode, const size_t& size) : Packet<char>(size) {
+      const uint16_t curr_op_code{ htons((uint16_t)op_code) };
+      const uint16_t overhead_field_size{ sizeof(curr_op_code) };
+      memcpy(&Packet<char>::packet[pos], &curr_op_code, overhead_field_size);
+      pos += overhead_field_size;
+      memcpy(&Packet<char>::packet[pos], filename.c_str(), filename.size());
+      pos += filename.size();
+      memset(&Packet<char>::packet[pos], '\0', 1);
+      ++pos;
+      if (trans_mode == TransferMode::netascii) {
+        memcpy(&Packet<char>::packet[pos], NETASCII, NETASCII_MODE_SIZE);
+        pos += NETASCII_MODE_SIZE;
+      } else {
+        memcpy(&Packet<char>::packet[pos], OCTET, OCTET_MODE_SIZE);
+        pos += OCTET_MODE_SIZE;
+      }
+      memset(&Packet<char>::packet[pos], '\0', 1);
+      ++pos;
+    }
+    WRRQ(const string&& filename, const TransferMode&& trans_mode,  const size_t& size) : WRRQ(filename, trans_mode, size){}
+    WRRQ(const string& filename, const TransferMode& trans_mode,  const size_t& size, const optional<size_t>& tsize, const optional<uint8_t>& timeout, const optional<size_t>& blksize) 
+    : WRRQ(filename, trans_mode, size) {
+      size_t value_size;
+      std::string val_name;
+      if (tsize.has_value()) {
+        memcpy(&Packet<char>::packet[pos], TSIZE_OPT_NAME, TSIZE_OPT_SIZE);
+        pos += TSIZE_OPT_SIZE;
+        memset(&Packet<char>::packet[pos], '\0', 1);
+        ++pos;
+        val_name = std::to_string(tsize.value());
+        value_size = val_name.size();
+        memcpy(&Packet<char>::packet[pos], val_name.c_str(), value_size);
+        pos += value_size;
+        memset(&Packet<char>::packet[pos], '\0', 1);
+      }
+      if (blksize.has_value()) {
+        ++pos;
+        memcpy(&Packet<char>::packet[pos], BLKSIZE_OPT_NAME, BLKSIZE_OPT_SIZE);
+        pos += BLKSIZE_OPT_SIZE;
+        memset(&Packet<char>::packet[pos], '\0', 1);
+        ++pos;
+        val_name = std::to_string(blksize.value());
+        value_size = val_name.size();
+        memcpy(&Packet<char>::packet[pos], val_name.c_str(), value_size);
+        pos += value_size;
+        memset(&Packet<char>::packet[pos], '\0', 1);
+      }
+       if (timeout.has_value()) {
+        ++pos;
+        memcpy(&Packet<char>::packet[pos], TIMEOUT_OPT_NAME, TIMEOUT_OPT_SIZE);
+        pos += TIMEOUT_OPT_SIZE;
+        memset(&Packet<char>::packet[pos], '\0', 1);
+        ++pos;
+        val_name = std::to_string(timeout.value());
+        value_size = val_name.size();
+        memcpy(&Packet<char>::packet[pos], val_name.c_str(), value_size);
+        pos += value_size;
+        memset(&Packet<char>::packet[pos], '\0', 1);
+      }
+    }
+    WRRQ(const string&& filename, const TransferMode&& trans_mode,  const size_t& size, const optional<size_t>&& tsize, const optional<uint8_t>&& timeout, const optional<size_t>&& blksize)
+    : WRRQ(filename, trans_mode, size, tsize, timeout, blksize) {} 
+    [[nodiscard]] constexpr auto getData(void) const noexcept{
+      auto ret = make_pair(Packet<char>::packet, Packet<char>::packet_size);
+      return ret;
+    }
+  };
+}
 
-
-
-
+namespace TFTPTools {
+  using namespace TFTPShortNames;
+  using namespace TFTPDataType;
   //  IO buffer
   template <size_t buff_size> class IO_BUFFER {
   public:
@@ -1082,265 +1315,334 @@ namespace {
   
   //  File IO operations
   class FileIO {
-  public:
-    bool file_is_open{ false };
-    bool bin_file{ false };
+    public:
+      bool file_is_open{ false };
+      bool bin_file{ false };
 
-    //  Log file constructors
-    explicit FileIO(const fs::path file_name) : file_name{ file_name } {
-      write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
-    }
-    FileIO(const fs::path file_name, const bool reset_file) {
-      if (reset_file) {
-        write_file.open(file_name.c_str(), std::ios::in | std::ios::trunc);
-      }
-      else {
+      //  Log file constructors
+      explicit FileIO(const fs::path& file_name) : file_name{ file_name } {
         write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
       }
-    }
-    
-    //  Data transfer file operations constructors
-    FileIO(const fs::path file_name, const bool read, const bool bin) : file_name{ file_name } {
-      if (fs::exists(file_name)) {
-        if (read) {
-          if (bin) {
-            read_file.open(file_name.c_str());
-            bin_file = true;
+      explicit FileIO(const fs::path&& file_name) : file_name{ std::move(file_name) } {
+        write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
+      }
+      FileIO(const fs::path& file_name, const bool reset_file) : file_name{ file_name } {
+        if (reset_file) {
+          write_file.open(file_name.c_str(), std::ios::in | std::ios::trunc);
+        } else {
+          write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
+        }
+      }
+      FileIO(const fs::path&& file_name, const bool reset_file) : file_name{ std::move(file_name) } {
+        if (reset_file) {
+          write_file.open(file_name.c_str(), std::ios::in | std::ios::trunc);
+        } else {
+          write_file.open(file_name.c_str(), std::ios::in | std::ios::app | std::ios::ate);
+        }
+      }
+      //  Data transfer file operations constructors
+      FileIO(const fs::path& file_name, const bool read, const bool bin) 
+      : file_name{ file_name } {initTransfer(read, bin);}
+      FileIO(const fs::path&& file_name, const bool read, const bool bin) 
+      : file_name{ std::move(file_name) } {initTransfer(read, bin);}
+      FileIO(const fs::path& file_name, const bool read, const bool bin, const bool reset) 
+      : file_name{ file_name } {initTransfer(read, bin, reset);}
+      FileIO(const fs::path&& file_name, const bool read, const bool bin, const bool reset) 
+      : file_name{ std::move(file_name) } {initTransfer(read, bin, reset);}
+      FileIO(const FileMode* const mode) : FileIO(std::get<0>(*mode), std::get<1>(*mode), std::get<2>(*mode)) {}
+      virtual ~FileIO() {
+        if (write_file.is_open()) {
+          write_file.close();
+        }
+        if (read_file.is_open()) {
+          read_file.close();
+        }
+      }
+
+      FileIO(const FileIO&) = delete;
+      FileIO(const FileIO&&) = delete;
+      FileIO& operator = (const FileIO&) = delete;
+      FileIO& operator = (const FileIO&&) = delete;
+
+      //  Read from file, as usual is
+      template <typename T> requires TransType<T>
+      [[nodiscard]] size_t readType(ReadFileData<T>* buffer) noexcept {
+        size_t ret{ buffer->size };
+        if constexpr (std::is_same<T, byte>::value) {
+          read_file.read((char*)buffer->data, buffer->size);
+        } else {
+          read_file.read(buffer->data, buffer->size);
+        }
+        if (read_file.eof()) {
+          ret = read_file.gcount();
+          buffer->size = ret;
+        }
+        if (!read_file) {
+          ret = 0;
+        }
+
+        return ret;
+      }
+      //  Read file part according requested size
+      //  true - success
+      //  false - EOF
+      //  string - error text
+      template <typename T> requires TransType<T>
+      [[nodiscard]] variant<bool, string> readFile(ReadFileData<T>* buffer) noexcept {
+        variant<bool, string> ret{true};
+        if constexpr (std::is_same<T, byte>::value) {
+          read_file.read((char*)buffer->data, buffer->size);
+        } else {
+          read_file.read(buffer->data, buffer->size);
+        }
+        if (!read_file) {
+          ret = strerror(errno);
+        }
+        if (read_file.eof()) {
+          ret = false;
+        }
+        return ret;
+      }
+      bool write(string_view str) noexcept {
+        bool ret{ true };
+        write_file << str << std::flush;
+        if (write_file.bad()) {
+          ret = false;
+        }
+        return ret;
+      }
+      bool write(char* str, size_t data_size) noexcept {
+        bool ret{ true };
+        write_file.write(str, data_size);
+        if (write_file.bad()) {
+          ret = false;
+        }
+        return ret;
+      }
+      template <typename T> requires TransType<T>
+      bool writeType(T* str) noexcept {
+        bool ret{ true };
+        write_file << str << std::flush;
+        if (write_file.bad()) {
+          ret = false;
+        }
+        return ret;
+      }
+      template <typename T> requires TransType<T>
+      [[nodiscard]] variant<bool, string> writeFile(T* str) noexcept {
+        variant<bool, string> ret{true};
+        write_file << str << std::flush;
+        if (write_file.bad()) {
+          ret = strerror(errno);
+        }
+        return ret;
+      }
+      template <typename T> requires TransType<T>
+      [[nodiscard]] variant<bool, string> writeFile(T* str, size_t data_size) noexcept {
+        variant<bool, string> ret{true};
+        if constexpr (std::is_same<T, char>::value) {
+          write_file.write(str, data_size);
+        } else {
+          write_file.write(reinterpret_cast<char*>(str), data_size);
+        }
+        
+        if (write_file.bad()) {
+          ret = strerror(errno);
+        }
+        return ret;
+      }
+      [[nodiscard]] fs::path getFilePath(void) const noexcept {
+        return file_name;
+      }
+    protected:
+      const fs::path file_name;
+    private:
+      std::ofstream write_file;
+      std::ifstream read_file;
+      //  File transfer operations initialisation
+      void initTransfer(const bool read, const bool bin) noexcept {
+        if (fs::exists(file_name)) {
+          if (read) {
+            if (bin) {
+              read_file.open(file_name.c_str());
+              bin_file = true;
+              file_is_open = read_file.is_open();
+            } else {
+              read_file.open(file_name.c_str());
+              file_is_open = read_file.is_open();
+            }
+          } else {
+            if (bin) {
+              write_file.open(file_name.c_str(), std::ios::binary | std::ios::trunc);
+              write_file.close();
+              write_file.open(file_name.c_str(), std::ios::binary | std::ios::ate);
+              bin_file = true;
+              file_is_open = write_file.is_open();
+            } else {
+              write_file.open(file_name.c_str(), std::ios::trunc);
+              write_file.close();
+              write_file.open(file_name.c_str(), std::ios::ate);
+              file_is_open = write_file.is_open();
+            }
+          }
+        } else {
+          if (!read) {
+            if (bin) {
+              write_file.open(file_name.c_str(), std::ios::binary | std::ios::ate);
+              file_is_open = write_file.is_open();
+            } else {
+              write_file.open(file_name.c_str(), std::ios::ate);
+              file_is_open = write_file.is_open();
+            }
+          }
+        }
+      }
+      void initTransfer(const bool read, const bool bin, const bool reset) noexcept {
+        if (fs::exists(file_name)) {
+          if (read) {
+            if (bin) {
+              read_file.open(file_name.c_str(), std::ios::binary);
+              bin_file = true;
+            } else {
+              read_file.open(file_name.c_str());
+            }
+            file_is_open = read_file.is_open();
+          } else {
+            if (bin && reset) {
+              write_file.open(file_name.c_str(), std::ios::binary | std::ios::trunc);
+              bin_file = true;
+            } else if (bin && !reset) {
+              write_file.open(file_name.c_str(), std::ios::binary | std::ios::app);
+              bin_file = true;
+            } else if (!bin && !reset) {
+              write_file.open(file_name.c_str(), std::ios::app);
+            } else if (!bin && reset) {
+              write_file.open(file_name.c_str(), std::ios::trunc);
+            }
+            file_is_open = write_file.is_open();
+          }
+        } else {
+          if (!read) {
+            if (bin && reset) {
+              read_file.open(file_name.c_str(), std::ios::binary | std::ios::trunc);
+              bin_file = true;
+            } else if (bin && !reset) {
+              read_file.open(file_name.c_str(), std::ios::binary | std::ios::app);
+              bin_file = true;
+            } else if (!bin && !reset) {
+              read_file.open(file_name.c_str(), std::ios::app);
+            } else if (!bin && reset) {
+              read_file.open(file_name.c_str(), std::ios::trunc);
+            }
             file_is_open = read_file.is_open();
           }
-          else {
-            read_file.open(file_name.c_str());
-            file_is_open = read_file.is_open();
-          }
-        }
-        else {
-          if (bin) {
-            write_file.open(file_name.c_str(), std::ios::binary | std::ios::trunc);
-            write_file.close();
-            write_file.open(file_name.c_str(), std::ios::binary | std::ios::ate);
-            bin_file = true;
-            file_is_open = write_file.is_open();
-          }
-          else {
-            write_file.open(file_name.c_str(), std::ios::trunc);
-            write_file.close();
-            write_file.open(file_name.c_str(), std::ios::ate);
-            file_is_open = write_file.is_open();
-          }
         }
       }
-      else {
-        if (!read) {
-          if (bin) {
-            write_file.open(file_name.c_str(), std::ios::binary | std::ios::ate);
-            file_is_open = write_file.is_open();
-          }
-          else {
-            write_file.open(file_name.c_str(), std::ios::ate);
-            file_is_open = write_file.is_open();
-          }
-        }
-      }
-    }
-    FileIO(const FileMode* const mode) : FileIO(std::get<0>(*mode), std::get<1>(*mode), std::get<2>(*mode)) {}
-    virtual ~FileIO() {
-      if (write_file.is_open()) {
-        write_file.close();
-      }
-      if (read_file.is_open()) {
-        read_file.close();
-      }
-    }
-
-    FileIO(const FileIO&) = delete;
-    FileIO(const FileIO&&) = delete;
-    FileIO& operator = (const FileIO&) = delete;
-    FileIO& operator = (const FileIO&&) = delete;
-
-    //  Read from file, as usual is
-    template <typename T> requires TransType<T>
-    [[nodiscard]] size_t readType(ReadFileData<T>* buffer) noexcept {
-      size_t ret{ buffer->size };
-      if constexpr (std::is_same<T, byte>::value) {
-        read_file.read((char*)buffer->data, buffer->size);
-      }
-      else {
-        read_file.read(buffer->data, buffer->size);
-      }
-      if (read_file.eof()) {
-        ret = read_file.gcount();
-        buffer->size = ret;
-      }
-      if (!read_file) {
-        ret = 0;
-      }
-
-      return ret;
-    }
-    //  Read file part according requested size
-    //  true - success
-    //  false - EOF
-    //  string - error text
-    template <typename T> requires TransType<T>
-    [[nodiscard]] variant<bool, string> readFile(ReadFileData<T>* buffer) noexcept {
-      variant<bool, string> ret{true};
-      if constexpr (std::is_same<T, byte>::value) {
-        read_file.read((char*)buffer->data, buffer->size);
-      }
-      else {
-        read_file.read(buffer->data, buffer->size);
-      }
-      if (!read_file) {
-        ret = strerror(errno);
-      }
-      if (read_file.eof()) {
-        ret = false;
-      }
-      return ret;
-    }
-    bool write(string_view str) noexcept {
-      bool ret{ true };
-      write_file << str << std::flush;
-      if (write_file.bad()) {
-        ret = false;
-      }
-      return ret;
-    }
-    bool write(char* str, size_t data_size) noexcept {
-      bool ret{ true };
-      write_file.write(str, data_size);
-      if (write_file.bad()) {
-        ret = false;
-      }
-      return ret;
-    }
-    template <typename T> requires TransType<T>
-    bool writeType(T* str) noexcept {
-      bool ret{ true };
-      write_file << str << std::flush;
-      if (write_file.bad()) {
-        ret = false;
-      }
-      return ret;
-    }
-    template <typename T> requires TransType<T>
-    [[nodiscard]] variant<bool, string> writeFile(T* str) noexcept {
-      variant<bool, string> ret{true};
-      std::cout<<"Writing to file : " << str<<std::endl<<std::flush;
-      write_file << str << std::flush;
-      if (write_file.bad()) {
-        ret = strerror(errno);
-      }
-      return ret;
-    }
-    [[nodiscard]] fs::path getFilePath(void) const noexcept {
-      return file_name;
-    }
-  protected:
-    const fs::path file_name;
-  private:
-    std::ofstream write_file;
-    std::ifstream read_file;
   };
 
   //  Log to file
   class Log final : public FileIO {
-  public:
-    Log(const fs::path log_fl, const bool debug) : FileIO(log_fl), debug{ debug } {}
-    Log(const fs::path log_fl, const bool renew_log, const bool debug)
+    public:
+      Log(const fs::path& log_fl, const bool debug) : FileIO(log_fl), debug{ debug } {}
+      Log(const fs::path&& log_fl, const bool debug) : FileIO(std::move(log_fl)), debug{ debug } {}
+      Log(const fs::path& log_fl, const bool renew_log, const bool debug)
       : FileIO{ log_fl, renew_log }, debug{ debug } {}
-    Log(const fs::path log_fl, const bool renew_log, const bool debug, const bool terminal)
-      : Log{ log_fl ,renew_log , debug } {
-      this->terminal = terminal;
-    }
+      Log(const fs::path&& log_fl, const bool renew_log, const bool debug)
+      : FileIO{std::move(log_fl), renew_log }, debug{ debug } {}
+      Log(const fs::path& log_fl, const bool renew_log, const bool debug, const bool terminal)
+      : Log{ log_fl ,renew_log , debug } {this->terminal = terminal;}
+      Log(const fs::path&& log_fl, const bool renew_log, const bool debug, const bool terminal)
+      : Log{ std::move(log_fl), renew_log , debug } {this->terminal = terminal;}
 
-    Log(const Log&) = delete;
-    Log(const Log&&) = delete;
-    Log& operator = (const Log&) = delete;
-    Log& operator = (const Log&&) = delete;
+      Log(const Log&) = delete;
+      Log(const Log&&) = delete;
+      Log& operator = (const Log&) = delete;
+      Log& operator = (const Log&&) = delete;
 
-    bool errMsg(const string_view source, const string_view msg) noexcept {
-      bool ret;
-      ret = write(source, msg, LogSeverety::Error);
-      return ret;
-    }
-    bool warningMsg(const string_view source, const string_view msg) noexcept {
-      bool ret;
-      ret = write(source, msg, LogSeverety::Warning);
-      return ret;
-    }
-    bool infoMsg(const string_view source, const string_view msg) noexcept {
-      bool ret;
-      ret = write(source, msg, LogSeverety::Information);
-      return ret;
-    }
-    bool debugMsg(const string_view source, const string_view msg) noexcept {
-      bool ret{ false };
-      if (debug) {
-        ret = write(source, msg, LogSeverety::Debug);
+      bool errMsg(const string_view source, const string_view msg) noexcept {
+        bool ret;
+        ret = write(source, msg, LogSeverity::Error);
+        return ret;
       }
-      return ret;
-    }
-  protected:
-    bool write(const string_view msg, const string_view source, const LogSeverety severety) noexcept {
-      bool ret{ false };
-      string msg_severety;
-      time_t ttime = time(0);
-      string log_msg{ ctime(&ttime) };
+      bool warningMsg(const string_view source, const string_view msg) noexcept {
+        bool ret;
+        ret = write(source, msg, LogSeverity::Warning);
+        return ret;
+      }
+      bool infoMsg(const string_view source, const string_view msg) noexcept {
+        bool ret;
+        ret = write(source, msg, LogSeverity::Information);
+        return ret;
+      }
+      bool debugMsg(const string_view source, const string_view msg) noexcept {
+        bool ret{ false };
+        if (debug) {
+          ret = write(source, msg, LogSeverity::Debug);
+        }
+        return ret;
+      }
+    protected:
+      bool write(const string_view msg, const string_view source, const LogSeverity severity) noexcept {
+        bool ret{ false };
+        string msg_severity;
+        time_t ttime = time(0);
+        string log_msg{ ctime(&ttime) };
 
-      switch (severety) {
-      case LogSeverety::Error: msg_severety = "Error"; break;
-      case LogSeverety::Warning: msg_severety = "Warning"; break;
-      case LogSeverety::Information: msg_severety = "Information"; break;
-      case LogSeverety::Debug: msg_severety = "Debug"; break;
-      default: msg_severety = "Information";
+        switch (severity) {
+        case LogSeverity::Error: msg_severity = "Error"; break;
+        case LogSeverity::Warning: msg_severity = "Warning"; break;
+        case LogSeverity::Information: msg_severity = "Information"; break;
+        case LogSeverity::Debug: msg_severity = "Debug"; break;
+        default: msg_severity = "Information";
+        }
+
+        log_msg.pop_back();
+        log_msg += " : ";
+        log_msg += msg_severity;
+        log_msg += " : ";
+        log_msg += source;
+        log_msg += " : ";
+        log_msg += msg;
+        log_msg += ";";
+        log_msg += "\n";
+
+        if (terminal) {
+          std::cout << log_msg << std::endl << std::flush;
+          ret = true;
+        }
+        else {
+          ret = FileIO::write(log_msg);
+        }
+
+        return ret;
       }
 
-      log_msg.pop_back();
-      log_msg += " : ";
-      log_msg += msg_severety;
-      log_msg += " : ";
-      log_msg += source;
-      log_msg += " : ";
-      log_msg += msg;
-      log_msg += ";";
-      log_msg += "\n";
-
-      if (terminal) {
-        std::cout << log_msg << std::endl << std::flush;
-        ret = true;
-      }
-      else {
-        ret = FileIO::write(log_msg);
-      }
-
-      return ret;
-    }
-
-  private:
-    const bool debug;
-    bool terminal{ false };
+    private:
+      const bool debug;
+      bool terminal{ false };
   };
 
 
-  // TODO : Change exceptions to throw all errors to upper level
   //  Base class for networking
   //  - creating sockets and a few general transfer network options
   class BaseNet {
   public:
+    //  Service initialisation status
+    optional<string_view> service_ini_stat;
     //  Transfer param
-    const size_t buff_size{ 512 };
-    const size_t timeout{ 3 };
-    const size_t file_size{ 0 };
+    size_t buff_size{ 512 };
+    size_t timeout{ 3 };
+    size_t file_size{ 0 };
     
-    BaseNet(size_t port) : port{ port } {
-      if (!init(port)) {
-        std::cerr << "Socket init problem" << std::endl;
-      }
+    BaseNet(const size_t& port) : port{ port } {
+      service_ini_stat = init(port);
+    }
+    BaseNet(const size_t&& port) : port{ port } {
+      service_ini_stat = init(port);
     }
     BaseNet() : BaseNet(DEFAULT_PORT) {}
     BaseNet(const size_t port, const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr)
-      : buff_size{ buff_size }, timeout{ timeout }, file_size{ file_size }, port{ port },  cliaddr{cln_addr}{
+      : buff_size{ buff_size }, timeout{ timeout }, file_size{ file_size }, port{ port },  cliaddr{cln_addr} {
       try {
         if (!init(port)) {
           std::cerr << "Socket init problem" << std::endl;
@@ -1361,14 +1663,28 @@ namespace {
         }
       }
       catch (const std::exception& e) {
-        std::cerr << "BaseNet - ";
-        std::cerr << e.what() << std::endl;
+        service_ini_stat = e.what();
       }
     }
     BaseNet(const size_t buff_size, const size_t timeout, const size_t file_size, struct sockaddr_storage cln_addr)
       : BaseNet(DEFAULT_PORT, buff_size, timeout, file_size, cln_addr) {}
     BaseNet(const size_t port, struct sockaddr_storage cln_addr)
       : BaseNet(port, 0, 0, 0, cln_addr) {}
+    BaseNet(const size_t& port, string_view& srv_addr) 
+    : port{port}, srv_addr{srv_addr} {service_ini_stat = initSock();}
+    BaseNet(const size_t&& port, string_view&& srv_addr) 
+    : port{std::move(port)}, srv_addr{std::move(srv_addr)} {service_ini_stat = initSock();}
+    BaseNet(const size_t& port, const int& ip_ver, string_view& srv_addr) 
+    : port{port}, ip_ver{ip_ver}, srv_addr{srv_addr} {service_ini_stat = initSock();}
+    BaseNet(const size_t&& port, const int&& ip_ver, string_view&& srv_addr) 
+    : port{std::move(port)}, ip_ver{std::move(ip_ver)}, srv_addr{std::move(srv_addr)} {service_ini_stat = initSock();}
+    //  Clients connection
+    BaseNet(const size_t& buff_size, const size_t& timeout) : buff_size{ buff_size }, timeout{ timeout } {service_ini_stat = init(0);}
+    BaseNet(const size_t&& buff_size, const size_t&& timeout) : buff_size{ std::move(buff_size) }, timeout{ std::move(timeout) } {service_ini_stat = init(0);}
+    BaseNet(const size_t& port, const int& ip_ver, string_view& srv_addr, const size_t& buff_size, const size_t& timeout) 
+    : buff_size{ buff_size }, timeout{ timeout }, port{port}, ip_ver{ip_ver}, srv_addr{srv_addr} {service_ini_stat = initSock();}
+    BaseNet(const size_t&& port, const int&& ip_ver, string_view&& srv_addr, const size_t&& buff_size, const size_t&& timeout) 
+    : buff_size{ std::move(buff_size) }, timeout{ std::move(timeout) }, port{std::move(port)}, ip_ver{std::move(ip_ver)}, srv_addr{std::move(srv_addr)} {service_ini_stat = initSock();}
     //  Creating standard net IO socket class or multicast socket if in file mode multicast settings exists 
     BaseNet(const FileMode* const trans_mode) {
       try {
@@ -1379,7 +1695,7 @@ namespace {
             port = MULTICAST_DEFAULT_PORT; 
           }
           multicast_address = mult_addr.value();
-          if (!init_multicast()) {
+          if (auto mult{init_multicast()}; mult.has_value()) {
             throw std::runtime_error ("Multicast socket CREATING error");
         }
         } else {
@@ -1407,7 +1723,7 @@ namespace {
         }
       }
       catch(const std::exception& e) {
-        std::cerr << e.what() << '\n';
+        service_ini_stat = e.what();
       }
       
     }
@@ -1469,6 +1785,11 @@ namespace {
       }
       return ret;
     }
+    void sendErr(const TFTPError err_code, const char* err_msg) {
+      auto err_size{strlen(err_msg)};
+      ErrorPacket err_pack(err_size, err_code, err_msg);
+      sendto(sock_id, err_pack.packet, err_size + PACKET_DATA_OVERHEAD , 0, (const struct sockaddr*)&cliaddr, cli_addr_size);
+    }
   protected:
     //  Socket params
     size_t port;
@@ -1481,7 +1802,8 @@ namespace {
     string multicast_address;
     struct sockaddr_in multicast_int;
     struct in_addr local_int;
-    
+    const int ip_ver {AF_INET};
+    const string_view srv_addr;
 
     string getERRNO(void) {
       string err_str;
@@ -1497,8 +1819,8 @@ namespace {
       return err_str;
     }
   private:
-    [[nodiscard]] bool init(const size_t port = DEFAULT_PORT) noexcept {
-      bool ret{ false };
+    [[nodiscard]] optional<string_view> init(const size_t port = DEFAULT_PORT) noexcept {
+      optional<string_view> ret;
       struct addrinfo hints, * servinfo = nullptr;
       memset(&hints, 0, sizeof hints);
       hints.ai_family = AF_UNSPEC;
@@ -1506,8 +1828,7 @@ namespace {
       hints.ai_flags = AI_PASSIVE;
 
       if (auto rv = getaddrinfo(NULL, std::to_string(port).c_str(), &hints, &servinfo); rv != 0) {
-        std::cerr << "getaddrinfo: " << gai_strerror(rv);
-        return ret;
+        ret =  gai_strerror(rv);
       }
 
       // Looking for suitable interface
@@ -1520,14 +1841,47 @@ namespace {
           close(sock_id);
           continue;
         }
-        ret = true;
         break;
       }
       freeaddrinfo(servinfo);
       return ret;
     }
-    [[nodiscard]] bool init_multicast () noexcept {
-      bool ret {false};
+    [[nodiscard]] optional<string_view> initSock(void) noexcept {
+        int status;
+        optional<string_view> ret;
+        struct addrinfo hints;
+        struct addrinfo* servinfo = nullptr;
+
+        memset(&hints, 0, sizeof hints);
+        hints.ai_family = ip_ver;
+        hints.ai_socktype = SOCK_DGRAM;
+
+        if (srv_addr.empty()) {
+          hints.ai_flags = AI_PASSIVE;
+          string str_port{ std::to_string(port) };
+          status = getaddrinfo(NULL, str_port.c_str(), &hints, &servinfo);
+        }
+        else {
+          string str_port{ std::to_string(port) };
+          string str_addr{ srv_addr };
+          status = getaddrinfo(str_addr.c_str(), str_port.c_str(), &hints, &servinfo);
+        }
+        if (status) {
+          ret = gai_strerror(status);
+          return ret;
+        }
+        sock_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+        if (sock_id == -1) {
+          ret = "Socket create error";
+          return ret;
+        }
+        
+        freeaddrinfo(servinfo); // free the linked-list
+        return ret;
+      }
+    [[nodiscard]] optional<string_view> init_multicast () noexcept {
+      int res;
+      optional<string_view> ret;
       struct  sockaddr_in addr;
       socklen_t len = sizeof addr;
       memset((char *) &multicast_int, 0, sizeof(multicast_int));
@@ -1535,15 +1889,17 @@ namespace {
       multicast_int.sin_addr.s_addr = inet_addr(multicast_address.c_str());
       multicast_int.sin_port = htons(port);
       ret = init(port);
-      if (!ret) {
+      if (ret.has_value()) {
         return ret;
       }
-      if (auto res{getsockname(sock_id, (struct sockaddr*)&addr, &len)}; res == -1) {
-        return ret;
+      if ( res = getsockname(sock_id, (struct sockaddr*)&addr, &len); res == -1) {
+        return ret = "Cant get socket address";
       }
       local_int.s_addr = inet_addr(inet_ntoa(addr.sin_addr));
-      ret = setsockopt(sock_id, IPPROTO_IP, IP_MULTICAST_IF, (char *)&local_int, sizeof(local_int));
-      
+      res = setsockopt(sock_id, IPPROTO_IP, IP_MULTICAST_IF, (char *)&local_int, sizeof(local_int));
+      if (res == -1) {
+        ret = "Cant assign socket options";
+      }
       return ret;
     }
   };
@@ -1553,9 +1909,21 @@ namespace {
   public:
     explicit SrvNet(size_t port) : BaseNet{ port } {}
     SrvNet() : BaseNet{} {}
-    SrvNet(size_t port, size_t max_file_size) : BaseNet{ port }, max_file_size{ max_file_size } {}
-    SrvNet(size_t port, size_t max_file_size, uint8_t max_time_out, uint16_t max_buff_size)
-      : BaseNet{ port }, max_file_size{ max_file_size }, max_time_out{ max_time_out }, max_buff_size{ max_buff_size } {}
+    SrvNet(const size_t& port, const size_t& max_file_size) : BaseNet{ port }, max_file_size{ max_file_size } {}
+    SrvNet(const size_t& port, const size_t& max_file_size, const uint8_t& max_time_out, const uint16_t& max_buff_size)
+    : BaseNet{ port }, max_file_size{ max_file_size }, max_time_out{ max_time_out }, max_buff_size{ max_buff_size } {}
+    SrvNet(const size_t& port, string_view& srv_addr) : BaseNet(port, srv_addr) {}
+    SrvNet(const size_t&& port, string_view&& srv_addr) : BaseNet(std::move(port), std::move(srv_addr)) {}
+    SrvNet(const size_t& port, const int& ip_ver, string_view& srv_addr) : BaseNet(port, ip_ver, srv_addr) {}
+    SrvNet(const size_t&& port, const int&& ip_ver, string_view&& srv_addr) : BaseNet(std::move(port), std::move(ip_ver), std::move(srv_addr)) {}
+    SrvNet(const size_t& port, const size_t& max_file_size, const int& ip_ver, string_view& srv_addr)
+    : BaseNet(port, ip_ver, srv_addr), max_file_size{ max_file_size } {}
+    SrvNet(const size_t&& port, const size_t&& max_file_size, const int&& ip_ver, string_view&& srv_addr)
+    : BaseNet(std::move(port), std::move(ip_ver), std::move(srv_addr)), max_file_size{ std::move(max_file_size) } {}
+    SrvNet(const size_t& port, const size_t& max_file_size, const uint8_t& max_time_out, const uint16_t& max_buff_size, const int& ip_ver, string_view& srv_addr)
+    : BaseNet{ port, ip_ver, srv_addr }, max_file_size{ max_file_size }, max_time_out{ max_time_out }, max_buff_size{ max_buff_size } {}
+    SrvNet(const size_t&& port, const size_t&& max_file_size, const uint8_t&& max_time_out, const uint16_t&& max_buff_size, const int&& ip_ver, string_view&& srv_addr)
+    : BaseNet{ std::move(port), std::move(ip_ver), std::move(srv_addr)}, max_file_size{std::move(max_file_size)}, max_time_out{std::move(max_time_out)}, max_buff_size{std::move(max_buff_size)} {}
     virtual ~SrvNet() = default;
 
     SrvNet(const SrvNet&) = delete;
@@ -1808,18 +2176,17 @@ namespace {
           send_result = sendto(sock_id, &snd_data.packet, snd_data.packet_size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
         }
         if (send_result == -1) {
-          std::cout << "Send result error - " + getERRNO() << std::flush;
           if (log) {
             log->debugMsg(__PRETTY_FUNCTION__, "Send result error" + getERRNO());
           }
-          throw std::runtime_error(getERRNO());
+          return false;
         }
 
         //  Check return receipt
         data_pack.clear();
         valread = recvfrom(sock_id, (char*)&data_pack.packet, buff_size, MSG_WAITALL, (struct sockaddr*)&cliaddr, &cli_addr_size);
         if (valread == SOCKET_ERR) {
-          throw std::runtime_error(getERRNO());
+          return false;
         }
 
         //  Replay data analysis
@@ -1829,7 +2196,7 @@ namespace {
 
           //  Check if a data transfer is an error
           if (op_code == TFTPOpeCode::TFTP_OPCODE_ERROR) {
-            throw std::runtime_error(getERRNO());
+            return false;
           }
         }
 
@@ -1864,7 +2231,7 @@ namespace {
         data.clear();
         valread = recvfrom(sock_id, (char*)&data.packet, buff_size, MSG_WAITALL, (struct sockaddr*)&cliaddr, &cli_addr_size);
         if (valread == SOCKET_ERR) {
-          throw std::runtime_error(getERRNO());
+          return false;
         }
         if ((size_t)valread < buff_size) {
           run_transfer = false;
@@ -1877,13 +2244,12 @@ namespace {
 
           //  Check data transfer error
           if (op_code == TFTPOpeCode::TFTP_OPCODE_ERROR) {
-            throw std::runtime_error(getERRNO());
+            return false;
           }
         }
         block_number = data.getBlockNumber().value();
         ack.setNumber(block_number);
         sendto(sock_id, &ack, PACKET_ACK_SIZE, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-        //ret = write(&data.packet[data.getDataAddr().value()], data.getDataSize().value());
         ret = writeType<T>(&data.packet[data.getDataAddr().value()]);
         
         //  Upd transfer statistics
@@ -1916,6 +2282,10 @@ namespace MemoryManager {
   #pragma GCC diagnostic push
   #pragma GCC diagnostic ignored "-Wpointer-arith"
   
+  using namespace TFTPShortNames;
+  using namespace TFTPDataType;
+  using namespace TFTPTools;
+  
   //  Buffer get data request return datatype - 
   //  string_view error description in error case,
   //  size_t - number of bytes copied to requested container
@@ -1928,11 +2298,11 @@ namespace MemoryManager {
       unique_lock<std::mutex>  wait_thr_busy;
       condition_variable thr_copy_finish;
 
-      explicit PoolAllocator(const size_t pool_size) : total_size{pool_size} {
+      explicit PoolAllocator(const size_t& pool_size) : total_size{pool_size} {
         pool_point = malloc(pool_size);
         wait_thr_busy = std::unique_lock<std::mutex>(pool_mut, std::adopt_lock);
       }
-      PoolAllocator(const size_t blk_size, const size_t blk_num) 
+      PoolAllocator(const size_t& blk_size, const size_t& blk_num) 
         : total_size {blk_size * blk_num}, block_size{make_unique<size_t>(blk_size)}, blocks_number {make_unique<size_t>(blk_num)} {
           pool_point = malloc(total_size);
           wait_thr_busy = std::unique_lock<std::mutex>(pool_mut, std::adopt_lock);
@@ -1944,14 +2314,14 @@ namespace MemoryManager {
       }
 
       PoolAllocator(const PoolAllocator&) = delete;
-      PoolAllocator(const PoolAllocator&&) = delete;
+      PoolAllocator(PoolAllocator&&) = delete;
       PoolAllocator& operator = (const PoolAllocator&) = delete;
-      PoolAllocator& operator = (const PoolAllocator&&) = delete;
+      PoolAllocator& operator = (PoolAllocator&&) = delete;
       
       //  Fill buffer in by data 
       bool setRow(void* const data, const size_t size) noexcept {
         bool ret {false};
-        if (!data || size < 0) {
+        if (!data) {
           return ret;
         }
         auto free_space = total_size - used_size;
@@ -2092,7 +2462,7 @@ namespace MemoryManager {
       void clear (void) noexcept {
         used_size = 0;
       }
-      bool reSet(const size_t blk_num, const size_t blk_size) {
+      bool reSet(const size_t& blk_num, const size_t& blk_size) {
         bool ret{false};
         auto req_size {blk_num * blk_size};
         if (req_size > total_size) {
@@ -2367,26 +2737,26 @@ namespace MemoryManager {
       }
       
     public :
-      explicit IOBuff (const size_t buff_size) 
+      explicit IOBuff (const size_t& buff_size) 
       : first{make_unique<PoolAllocator>(buff_size)}, 
         second{make_unique<PoolAllocator>(buff_size)},
         buff_size{buff_size},
         wait_cash_operation{std::unique_lock<std::mutex>(dsk_mut, std::adopt_lock)}
         {}
-      IOBuff (const size_t blk_size, const size_t blk_num) 
+      IOBuff (const size_t& blk_size, const size_t& blk_num) 
       : first{make_unique<PoolAllocator>(blk_size, blk_num)},
         second{make_unique<PoolAllocator>(blk_size, blk_num)},
         buff_size {blk_size * blk_num},
         wait_cash_operation {std::unique_lock<std::mutex>(dsk_mut, std::adopt_lock)}
       {}
-      IOBuff (const size_t buff_size, std::shared_ptr<Log> log) 
+      IOBuff (const size_t& buff_size, std::shared_ptr<Log> log) 
       : first{make_unique<PoolAllocator>(buff_size)},
         second{make_unique<PoolAllocator>(buff_size)},
         buff_size{buff_size},
         wait_cash_operation {std::unique_lock<std::mutex>(dsk_mut, std::adopt_lock)},
         log{log}
       {}
-      IOBuff (const size_t blk_size, const size_t blk_num, std::shared_ptr<Log> log) 
+      IOBuff (const size_t& blk_size, const size_t& blk_num, std::shared_ptr<Log> log) 
       : first{make_unique<PoolAllocator>(blk_size, blk_num)},
         second{make_unique<PoolAllocator>(blk_size, blk_num)},
         buff_size {blk_size * blk_num},
@@ -2398,9 +2768,9 @@ namespace MemoryManager {
       }
       
       IOBuff(const IOBuff&) = delete;
-      IOBuff(const IOBuff&&) = delete;
+      IOBuff(IOBuff&&) = delete;
       IOBuff& operator = (const IOBuff&) = delete;
-      IOBuff& operator = (const IOBuff&&) = delete;
+      IOBuff& operator = (IOBuff&&) = delete;
       //  TODO: Add input params detailed check - packet(buffer size could be wrong!)
       //  Add negative response with error description (variant)
       [[nodiscard]] bool reSetSession(const FileMode* const mode) {
@@ -2690,14 +3060,14 @@ namespace MemoryManager {
   //  Buffer manager class - creating buffers (IOBuff) for everyone worker and assign each of them to by request
   class BuffMan {
     public :
-      BuffMan(const size_t buff_quantity, const size_t buff_size) : buff_quantity{buff_quantity} {
+      BuffMan(const size_t& buff_quantity, const size_t& buff_size) : buff_quantity{buff_quantity} {
         buff_set = make_unique<vector<shared_ptr<IOBuff>>>();
         workers_set = make_unique<map<thread::id, shared_ptr<IOBuff>>>();
         for (size_t count = 0; count < buff_quantity; ++count) {
           buff_set->emplace_back(make_shared<IOBuff>(buff_size));
         }
       }
-      BuffMan(const size_t buff_quantity, const size_t buff_blk_size, const size_t buff_blk_number) 
+      BuffMan(const size_t& buff_quantity, const size_t& buff_blk_size, const size_t buff_blk_number) 
       : BuffMan{buff_quantity, buff_blk_size * buff_blk_number}{}
       ~BuffMan() {
         workers_set->clear();
@@ -2705,9 +3075,9 @@ namespace MemoryManager {
       }
       
       BuffMan(const BuffMan&) = delete;
-      BuffMan(const BuffMan&&) = delete;
+      BuffMan(BuffMan&&) = delete;
       BuffMan& operator = (const BuffMan&) = delete;
-      BuffMan& operator = (const BuffMan&&) = delete;
+      BuffMan& operator = (BuffMan&&) = delete;
       
       [[nodiscard]] variant<shared_ptr<IOBuff>, bool> getBuffer(const thread::id id) noexcept {
         variant<shared_ptr<IOBuff>, bool> ret{false};
@@ -2739,524 +3109,1511 @@ namespace MemoryManager {
 }
 
 namespace TFTPSrvLib {
+  //using namespace TFTPShortNames;
+
   //  TFTP server - main server process
-  class TFTPSrv final : public SrvNet, public ShareResPool<ThrWorker*, deque>, public ShareResPool<TransferState*, vector> {
-  public:
-    TFTPSrv(const string_view path)
+  class TFTPSrv final : public TFTPTools::SrvNet, public TFTPTools::ShareResPool<TFTPShortNames::ThrWorker*, std::deque>, public TFTPTools::ShareResPool<TFTPShortNames::TransferState*, std::vector> {
+    public:
+      TFTPSrv(const std::string_view& path)
       : SrvNet{},
-       ShareResPool<ThrWorker*, deque>(std::thread::hardware_concurrency()),
-       ShareResPool<TransferState*, vector> (std::thread::hardware_concurrency()),
-       base_dir{ path } {}
-    TFTPSrv(const string_view path, const size_t core_mult)
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path } {}
+      TFTPSrv(const std::string_view&& path)
+      : SrvNet{},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(const std::filesystem::path&& path)
+      : SrvNet{},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(const std::string_view& path, const uint8_t core_mult)
       : SrvNet{}, 
-      ShareResPool<ThrWorker*, deque>(std::thread::hardware_concurrency()* core_mult), 
-      ShareResPool<TransferState*, vector> (std::thread::hardware_concurrency()* core_mult),
-      base_dir{ path } {max_threads = std::thread::hardware_concurrency() * core_mult;}
-    TFTPSrv(const string_view path, const size_t core_mult, const size_t port_number)
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult), 
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads {std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path } {}
+      TFTPSrv(const std::string_view&& path, const uint8_t core_mult)
+      : SrvNet{}, 
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult), 
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads {std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult)
+      : SrvNet{}, 
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult), 
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads {std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(const std::string_view& path, const uint8_t core_mult, const size_t port_number)
       : SrvNet{ port_number }, 
-      ShareResPool<ThrWorker*, deque>(std::thread::hardware_concurrency()* core_mult),
-      ShareResPool<TransferState*, vector> (std::thread::hardware_concurrency()* core_mult),
-      base_dir{ path } {max_threads = std::thread::hardware_concurrency() * core_mult;}
-    TFTPSrv(const string_view path, std::shared_ptr<Log> log) : TFTPSrv(path) { this->log = log; }
-    TFTPSrv(const string_view path, const size_t core_mult, std::shared_ptr<Log> log) : TFTPSrv(path, core_mult) { this->log = log; }
-    TFTPSrv(const string_view path, const size_t core_mult, const size_t port_number, std::shared_ptr<Log> log)
-      : TFTPSrv(path, core_mult, port_number) {
-      this->log = log;
-    }
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads {std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path } {}
+      TFTPSrv(const std::string_view&& path, const uint8_t core_mult, const size_t port_number)
+      : SrvNet{ port_number }, 
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads {std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult, const size_t port_number)
+      : SrvNet{ port_number }, 
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads {std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(const std::string_view& path, std::shared_ptr<TFTPTools::Log> log) 
+      : TFTPSrv(path) { this->log = log; }
+      TFTPSrv(const std::string_view&& path, std::shared_ptr<TFTPTools::Log> log) 
+      : TFTPSrv(path) { this->log = log; }
+      TFTPSrv(const std::filesystem::path&& path, std::shared_ptr<TFTPTools::Log> log) 
+      : TFTPSrv(std::move(path)) { this->log = log; }
+      TFTPSrv(const std::string_view& path, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
+      : TFTPSrv(path, core_mult) { this->log = log; }
+      TFTPSrv(const std::string_view&& path, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
+      : TFTPSrv(path, core_mult) { this->log = log; }
+      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
+      : TFTPSrv(std::move(path), core_mult) { this->log = log; }
+      TFTPSrv(const std::string_view& path, const uint8_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      : TFTPSrv(path, core_mult, port_number) {this->log = log;}
+      TFTPSrv(const std::string_view&& path, const uint8_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      : TFTPSrv(path, core_mult, port_number) {this->log = log;}
+      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      : TFTPSrv(std::move(path), core_mult, port_number) {this->log = log;}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t& port_number)
+      : SrvNet{port_number, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t&& port_number)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t port_number)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, const int ip_ver, std::string_view& srv_addr, const size_t port_number)
+      : SrvNet{port_number, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{port_number, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, const size_t port_number, std::string_view& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{port_number, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, const size_t port_number, std::string_view&& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, const size_t port_number, std::string_view&& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const uint8_t core_mult)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, std::string_view& srv_addr, const uint8_t core_mult)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view& srv_addr, const uint8_t core_mult)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t port_number, const uint8_t core_mult)
+      : SrvNet{port_number, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t port_number, const uint8_t core_mult)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const uint8_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t&& port_number, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{port_number, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t port_number, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t port_number, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, const int ip_ver, std::string_view& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const size_t& port_number, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{port_number, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, const int ip_ver, std::string_view&& srv_addr, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const uint8_t core_mult)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const size_t& port_number, const uint8_t& core_mult)
+      : SrvNet{port_number, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path } {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) } {}
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const uint8_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{TFTPShortNames::DEFAULT_PORT, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const size_t& port_number, const uint8_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{port_number, ip_ver, srv_addr},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ path },
+        log {log} {}
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
+        max_threads{std::thread::hardware_concurrency() * core_mult},
+        base_dir{ std::move(path) },
+        log {log} {}
 
-    TFTPSrv(const TFTPSrv&) = delete;
-    TFTPSrv(const TFTPSrv&&) = delete;
-    TFTPSrv& operator = (const TFTPSrv&) = delete;
-    TFTPSrv& operator = (const TFTPSrv&&) = delete;
-    
-    //  Starting server - running up session manager to wait incoming clients connections
-    bool srvStart(void) noexcept {
-      bool ret{ false };
-      if (log) {
-        string msg{ "Starting server" };
-        msg += lib_hello;
-        msg += lib_ver;
-        log->infoMsg(__PRETTY_FUNCTION__, msg);
-      }
-      auto res = init();
-      if (!res) {
-        if (log) {
-          log->warningMsg(__PRETTY_FUNCTION__, "Probably not all requested workers started");
-        }
-      }
-      connect_mgr = thread(&TFTPSrv::sessionMgr, this);
-      if (connect_mgr.joinable()) {
-        connect_mgr.detach();
-        ret = true;
-      }
-      if (log) {
-        log->infoMsg(__PRETTY_FUNCTION__, "Server started");
-      }
-      return ret;
-    }
-    //  Graceful server shutdown
-    bool srvStop(const size_t iteration_number = 60, const size_t port_number = DEFAULT_PORT) noexcept {
-      bool ret{ true };
-      stop_worker = true;
-      size_t iteration_count{ 0 };
-
-      int sock_id;
-      struct addrinfo hints, * servinfo;
-
-      while (!active_workers.empty()) {
-        std::this_thread::sleep_for(milliseconds(5000));
-        ++iteration_count;
-        if (iteration_count >= iteration_number) {
-          break;
-        }
-      }
-      stop_server = true;
-      std::this_thread::sleep_for(milliseconds(3000));
-
-      //  If server still running - send a message to to wake socket up and force to check state condition
-      if (stop_server.load()) {
-        memset(&hints, 0, sizeof hints);
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
-
-        if (auto rv = getaddrinfo("127.0.0.1", std::to_string(port_number).c_str(), &hints, &servinfo); rv != 0) {
-          return ret;
-        }
-
-        //  Loop through all the results, make a socket and send termination message
-        for (auto p = servinfo; p != NULL; p = p->ai_next) {
-          if (sock_id = socket(p->ai_family, p->ai_socktype, p->ai_protocol); sock_id == -1) {
-            continue;
-          }
-          sendto(sock_id, "stop", strlen("stop"), 0, p->ai_addr, p->ai_addrlen);
-          break;
-        }
-      }
-      return ret;
-    }
-    //  Terminate all active transfers and stop server
-    bool srvTerminate(const size_t iteration_number = 60, const size_t port_number = DEFAULT_PORT) {
-      bool ret{ true };
-      stop_worker = true;
-      term_worker = true;
-      size_t iteration_count{ 0 };
-
-      int sock_id;
-      struct addrinfo hints, * servinfo;
-
-      while (!active_workers.empty()) {
-        std::this_thread::sleep_for(milliseconds(5000));
-        ++iteration_count;
-        if (iteration_count >= iteration_number) {
-          break;
-        }
-      }
-      stop_server = true;
-      std::this_thread::sleep_for(milliseconds(3000));
-
-      //  If server still running - send a message to to wake socket up and force to check state condition
-      if (stop_server.load()) {
-        memset(&hints, 0, sizeof hints);
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
-
-        if (auto rv = getaddrinfo("127.0.0.1", std::to_string(port_number).c_str(), &hints, &servinfo); rv != 0) {
-          return ret;
-        }
-
-        //  Loop through all the results, make a socket and send terminating message
-        for (auto p = servinfo; p != NULL; p = p->ai_next) {
-          if (sock_id = socket(p->ai_family, p->ai_socktype, p->ai_protocol); sock_id == -1) {
-            continue;
-          }
-          sendto(sock_id, "stop", strlen("stop"), 0, p->ai_addr, p->ai_addrlen);
-          break;
-        }
-      }
-      return ret;
-    }
-    //  Terminate current transfer (Transfer only, not worker)
-    bool transferTerminate(std::thread::id id) {
-      bool ret{true}; 
-      if (ranges::find_if(active_workers, [id](const auto &thr){if(thr.get_id() == id) return true;}) == active_workers.end()) {
-        return ret;
-      }
-      auto work_stop = [id](const auto proc_set){
-        if (auto thr_id{std::get<3>(*proc_set)}; thr_id == id) {
-          *(std::get<2>(*proc_set)) = true;
-          return true;
-        } else {
-          return false;
-        }
-      };
-      if (auto res = ranges::find_if(*ShareResPool<ThrWorker*, deque>::thr_pool, work_stop); res != ShareResPool<ThrWorker*, deque>::thr_pool->end()) {
-        ret = true;
-      } else {
-        ret = false;
-      }
-      return ret;
-    }
-    //  Local dir path + requested
-    bool transferTerminate(std::filesystem::path path) {
-      bool ret;
-      auto work_stop = [path](const auto proc_set){
-        auto file_mode = std::get<1>(*proc_set);
-        auto current_path = std::get<0>(*file_mode);
-        if (current_path == path) {
-          return true;
-        } else {
-          return false;
-        }
-      };
-      if (auto res = ranges::find_if(*ShareResPool<ThrWorker*, deque>::thr_pool, work_stop); res != ShareResPool<ThrWorker*, deque>::thr_pool->end()) {
-        ret = true;
-      } else {
-        ret  =false;
-      }
-      return ret;
-    }
-    //  Get current server status - total number of workers, running workers number, running workers file names
-    [[nodiscard]] unique_ptr<SrvStat> srvStatus(void) noexcept {
-      auto thread_lst {make_unique<vector<std::thread::id>>()};
-      unique_ptr<vector<std::thread::id>> active_lst, idle_lst;
-      unique_ptr<vector<fs::path>> file_lst;
-      ranges::transform(active_workers, std::back_inserter(*thread_lst), [](const auto &thr){return thr.get_id();});
-
-      for (const auto& work_count : *ShareResPool<ThrWorker*, deque>::thr_pool) {
-        if (!active_lst) {
-          active_lst = make_unique<vector<std::thread::id>>();
-        }
-        if (!file_lst) {
-          file_lst = make_unique<vector<fs::path>>();
-        }
-        active_lst->emplace_back(std::get<3>(*work_count));
-        auto fl_mode = *std::get<1>(*work_count);
-        file_lst->emplace_back(std::get<0>(fl_mode));
-      }
-      if (active_lst) {
-        if (active_lst->size() < active_workers.size()) {
-          idle_lst = make_unique<vector<std::thread::id>>();
-          auto find_idle = [&active_lst](const auto& thr) {
-            auto thr_id = thr.get_id();
-            if (ranges::find(*active_lst, thr_id) == active_lst->end()) {
-              return thr_id;
-            } 
-          };
-          ranges::transform(active_workers, std::back_inserter(*idle_lst), find_idle);
-        }
-      }
-      auto timestamp = system_clock::now();
-      return make_unique<SrvStat>(make_tuple(std::move(thread_lst), std::move(active_lst), std::move(idle_lst), std::move(file_lst), timestamp));
-    }
-    // //  Get information about selected worker
-    [[nodiscard]] TransferState* procStat(std::thread::id id) noexcept{
-      TransferState* ret{nullptr};
-      auto thrCompare = [id] (const auto& thr) {
-        if (thr.get_id() == id) {
-          return true;
-        } else {
-          return false;
-        }
-      };
-      auto findActiveID = [id, &ret] (const auto worker) {
-        auto work_id = std::get<std::thread::id>(*worker);
-        if (work_id == id) {
-          *std::get<atomic<bool>*> (*worker)= true;
-          ret = worker;
-          return true;
-        }
-        return false;
-      };
-      if (auto res = ranges::find_if(active_workers, thrCompare); res == active_workers.end()) {
-        return ret;
-      }
-      ranges::for_each(*ShareResPool<TransferState*, vector>::thr_pool, findActiveID);
-      return ret;
-    }
-
-  private:
-    size_t max_threads{ 8 };
-    const std::filesystem::path base_dir;
-    size_t file_size;
-    atomic<bool> stop_worker{ false }, term_worker{ false }, stop_server{ false };
-    vector<jthread> active_workers;
-    unique_ptr<vector<pair<std::thread::id, fs::path>>> workers_pool; //  List of all 
-    thread connect_mgr;
-    mutex stop_worker_mtx;
-    std::shared_ptr<Log> log;
-
-    //  Creating transfers workers(threads)
-    bool init(void) {
-      bool ret{ true };
-
-      for (size_t worker_count{ 0 }; worker_count < max_threads; ++worker_count) {
-        active_workers.emplace_back(jthread(&TFTPSrv::worker, this));
-        if (!active_workers.back().joinable()) {
-          ret = false;
-          active_workers.pop_back();
-          if (log) {
-            log->debugMsg(__PRETTY_FUNCTION__, "One thread could not be created");
-          }
-        }
-        else {
-          if (log) {
-            std::ostringstream thr_convert;
-            thr_convert << std::this_thread::get_id();
-            const string thr_id{ thr_convert.str() };
-            log->debugMsg(__PRETTY_FUNCTION__, "Thread ID - " + thr_id + " created");
-          }
-        }
-      }
-      return ret;
-    }
-    //  Transfer worker - clients IO session
-    //  TODO: Add statistic update to base net class methods
-    void worker(void) {
-      bool ret;
-      mutex mtx;
-      condition_variable cv;
-      atomic<bool> current_terminate{false}, upd_stat{false};
-      unique_lock<std::mutex> lck(mtx);
-      FileMode file_mode;
-      auto thr_worker = make_unique<ThrWorker>(make_tuple(&cv, &file_mode, &current_terminate, std::this_thread::get_id(), &upd_stat)); 
-      auto thr_state{make_unique<TransferState>()};
-      //auto thr_state = make_unique<TransferState>(make_tuple(std::this_thread::get_id(), base_dir, system_clock::now(), 0, nullptr, nullptr));
-      unique_ptr<NetSock> transfer{};
-      std::ostringstream thr_convert;
-      thr_convert << std::this_thread::get_id();
-      const string thr_id{ thr_convert.str() };
-      string request_params;
-      OACKOption oack_opt;
-      optional<MulticastOption> mult_opt;
-      ReqParam oack_req;
-
-      if (log) {
-        log->debugMsg("Thread ID - " + thr_id, " Starting");
-      }
-      std::get<std::thread::id>(*thr_state) = std::this_thread::get_id();
-      ShareResPool<TransferState*, vector>::setRes(thr_state.get());
-      cv.wait(lck);
-
-      while (!stop_worker.load() || !term_worker.load() || !current_terminate.load()) {
-        transfer.reset(new NetSock{ &file_mode, &term_worker, &current_terminate, log });
-        //  TODO: Add non negotiation scenario!!!
-        //  Send request confirmation
-        if (std::get<7>(file_mode)) {
-          mult_opt = make_tuple(std::get<7>(file_mode).value(), std::get<8>(file_mode).value(), true);
-        }
-        if (std::get<6>(file_mode)) {
-          oack_req = make_pair(OptExtent::tsize, std::get<6>(file_mode).value());
-          std::get<0>(oack_opt) = oack_req;
-        }
-        if (std::get<4>(file_mode)) {
-          oack_req = make_pair(OptExtent::blksize, std::get<4>(file_mode).value());
-          std::get<1>(oack_opt) = oack_req;
-        }
-        if (std::get<5>(file_mode)) {
-          oack_req = make_pair(OptExtent::timeout, std::get<5>(file_mode).value());
-          std::get<2>(oack_opt) = oack_req;
-        }
-        std::get<3>(oack_opt) = mult_opt;
-        ret = transfer->sendOACK(&oack_opt);
-        //  Check response and log
-        if (!ret) {
-          if (log) {
-            log->infoMsg("Thread ID" + thr_id, "Can't send parameters confirmation (OACK) message");
-          }
-          continue;
-        }
-
-        if (log) {
-          request_params += "File - " + std::get<0>(file_mode).string() + "; ";
-          if (std::get<1>(file_mode)) {
-            request_params += "Operation - READ; ";
-          }
-          else {
-            request_params += "Operation - WRITE; ";
-          }
-          if (std::get<2>(file_mode)) {
-            request_params += "Mode - BINARY; ";
-          }
-          else {
-            request_params += "Mode - ASCII; ";
-          }
-          if (auto port{std::get<3>(file_mode)}; port) {
-            request_params += "Port - " + std::to_string(port.value()) + "; ";
-          }
-          if (auto buff_size{std::get<4>(file_mode)}; buff_size) {
-            request_params += "Buffer size - " + std::to_string(buff_size.value()) + "; ";
-          }
-          if (auto timeout{std::get<5>(file_mode)}; timeout) {
-            request_params += "Timeout - " + std::to_string(timeout.value()) + "; ";
-          }
-          if (auto fs_size{std::get<6>(file_mode)}; fs_size) {
-            request_params += "File size - " + std::to_string(fs_size.value()) + "; ";
-          }
-          if (auto mult_addr{std::get<7>(file_mode)};  mult_addr) {
-            request_params += "File size - " +  mult_addr.value() + "; ";
-          }
-          if (auto mult_port{std::get<8>(file_mode)}; mult_port) {
-            request_params += "File size - " + std::to_string(mult_port.value()) + "; ";
-          }
-
-          log->debugMsg("Thread ID" + thr_id, " Started request with params - " + request_params);
-        }
-        
-        //  Creating transfer statistics
-        std::get<fs::path>(*thr_state) = std::get<fs::path>(file_mode);
-        std::get<2>(*thr_state) = system_clock::now();
-        std::get<size_t*>(*thr_state) = &transfer->transfer_size;
-        std::get<time_point<system_clock>*>(*thr_state) = &transfer->timestamp;
-
-        if (auto fs_size{std::get<6>(file_mode)}; fs_size) {
-          std::get<3>(*thr_state) = fs_size.value();
-        } else {
-          std::get<3>(*thr_state) = fs::file_size(std::get<fs::path>(file_mode));
-        }
-
-    
-        //  Start transfer
-        if (auto read_mode{ std::get<1>(file_mode) }; read_mode) {
-          if (std::get<2>(file_mode)) {
-            transfer->readFile<byte>();
-          }
-          else {
-            transfer->readFile<char>();
-          }
-        }
-        else {
-          if (std::get<2>(file_mode)) {
-            transfer->writeFile<byte>();
-          }
-          else {
-            transfer->writeFile<char>();
-          }
-        }
-        if (log) {
-          log->debugMsg("Thread ID" + thr_id, "File transfer " + std::get<0>(file_mode).string() + "finished");
-        }
-
-        //  Reset optional parameters
-        resetFileModeTup(file_mode, index_sequence<3,4,5,6,7,8>{});
-        
-        auto rem = [](auto vec){if (std::get<std::thread::id>(*vec) == std::this_thread::get_id()) return true;};
-        ranges::remove_if(*ShareResPool<TransferState*, vector>::thr_pool, rem);
-        ShareResPool<ThrWorker*, deque>::setRes(thr_worker.get());
-        cv.wait(lck);
-      }
-      std::lock_guard<mutex> stop_mtx(stop_worker_mtx);
-      ranges::remove_if(active_workers.begin(), active_workers.end(), [](auto& thr) {if (thr.get_id() == std::this_thread::get_id()) return true; return false;});
-      if (log) {
-        log->debugMsg("Thread ID" + thr_id, "Finished");
-      }
-    }
-    //  Client connections manager
-    void sessionMgr(void) noexcept {
-      bool valread;
-      ReadPacket data;
-      fs::path requested_file;
-      TFTPOpeCode request_code;
-      optional<size_t> fl_size;
+      TFTPSrv(const TFTPSrv&) = delete;
+      TFTPSrv(const TFTPSrv&&) = delete;
+      TFTPSrv& operator = (const TFTPSrv&) = delete;
+      TFTPSrv& operator = (const TFTPSrv&&) = delete;
       
-      ThrWorker current_worker;
-      FileMode* worker_set;
+      //  Starting server - running up session manager to wait incoming clients connections
+      bool srvStart(void) noexcept {
+        bool ret{ false };
+        if (log) {
+          std::string msg{ "Starting server" };
+          msg += TFTPShortNames::lib_hello;
+          msg += TFTPShortNames::lib_ver;
+          log->infoMsg(__PRETTY_FUNCTION__, msg);
+        }
+        auto res = init();
+        if (!res) {
+          if (log) {
+            log->warningMsg(__PRETTY_FUNCTION__, "Probably not all requested workers started");
+          }
+        }
+        connect_mgr = std::thread(&TFTPSrv::sessionMgr, this);
+        if (connect_mgr.joinable()) {
+          connect_mgr.detach();
+          ret = true;
+        }
+        if (log) {
+          log->infoMsg(__PRETTY_FUNCTION__, "Server started");
+        }
+        return ret;
+      }
+      //  Graceful server shutdown
+      bool srvStop(const size_t iteration_number = 60, const size_t port_number = TFTPShortNames::DEFAULT_PORT) noexcept {
+        bool ret{ true };
+        stop_worker = true;
+        size_t iteration_count{ 0 };
 
-      if (log) {
-        log->infoMsg("Main thread", "Session manager started");
+        int sock_id;
+        struct addrinfo hints, * servinfo;
+
+        while (!active_workers.empty()) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+          ++iteration_count;
+          if (iteration_count >= iteration_number) {
+            break;
+          }
+        }
+        stop_server = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+
+        //  If server still running - send a message to to wake socket up and force to check state condition
+        if (stop_server.load()) {
+          memset(&hints, 0, sizeof hints);
+          hints.ai_family = AF_INET;
+          hints.ai_socktype = SOCK_DGRAM;
+
+          if (auto rv = getaddrinfo("127.0.0.1", std::to_string(port_number).c_str(), &hints, &servinfo); rv != 0) {
+            return ret;
+          }
+
+          //  Loop through all the results, make a socket and send termination message
+          for (auto p = servinfo; p != NULL; p = p->ai_next) {
+            if (sock_id = socket(p->ai_family, p->ai_socktype, p->ai_protocol); sock_id == -1) {
+              continue;
+            }
+            sendto(sock_id, "stop", strlen("stop"), 0, p->ai_addr, p->ai_addrlen);
+            break;
+          }
+        }
+        return ret;
+      }
+      //  Terminate all active transfers and stop server
+      bool srvTerminate(const size_t iteration_number = 60, const size_t port_number = TFTPShortNames::DEFAULT_PORT) noexcept {
+        bool ret{ true };
+        stop_worker = true;
+        term_worker = true;
+        size_t iteration_count{ 0 };
+
+        int sock_id;
+        struct addrinfo hints, * servinfo;
+
+        while (!active_workers.empty()) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+          ++iteration_count;
+          if (iteration_count >= iteration_number) {
+            break;
+          }
+        }
+        stop_server = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+
+        //  If server still running - send a message to to wake socket up and force to check state condition
+        if (stop_server.load()) {
+          memset(&hints, 0, sizeof hints);
+          hints.ai_family = AF_INET;
+          hints.ai_socktype = SOCK_DGRAM;
+
+          if (auto rv = getaddrinfo("127.0.0.1", std::to_string(port_number).c_str(), &hints, &servinfo); rv != 0) {
+            return ret;
+          }
+
+          //  Loop through all the results, make a socket and send terminating message
+          for (auto p = servinfo; p != NULL; p = p->ai_next) {
+            if (sock_id = socket(p->ai_family, p->ai_socktype, p->ai_protocol); sock_id == -1) {
+              continue;
+            }
+            sendto(sock_id, "stop", strlen("stop"), 0, p->ai_addr, p->ai_addrlen);
+            break;
+          }
+        }
+        return ret;
+      }
+      //  Terminate current transfer (Transfer only, not worker)
+      bool transferTerminate(std::thread::id id) noexcept {
+        bool ret{true}; 
+        if (TFTPShortNames::ranges::find_if(active_workers, [id](const auto &thr){if(thr.get_id() == id) return true;}) == active_workers.end()) {
+          return ret;
+        }
+        auto work_stop = [id](const auto proc_set){
+          if (auto thr_id{std::get<3>(*proc_set)}; thr_id == id) {
+            *(std::get<2>(*proc_set)) = true;
+            return true;
+          } else {
+            return false;
+          }
+        };
+        if (auto res = TFTPShortNames::ranges::find_if(*ShareResPool<TFTPShortNames::ThrWorker*, std::deque>::thr_pool, work_stop); res != ShareResPool<TFTPShortNames::ThrWorker*, std::deque>::thr_pool->end()) {
+          ret = true;
+        } else {
+          ret = false;
+        }
+        return ret;
+      }
+      //  Local dir path + requested
+      bool transferTerminate(std::filesystem::path path) noexcept {
+        bool ret;
+        auto work_stop = [path](const auto proc_set){
+          auto file_mode = std::get<1>(*proc_set);
+          auto current_path = std::get<0>(*file_mode);
+          if (current_path == path) {
+            return true;
+          } else {
+            return false;
+          }
+        };
+        if (auto res = TFTPShortNames::ranges::find_if(*ShareResPool<TFTPShortNames::ThrWorker*, std::deque>::thr_pool, work_stop); res != ShareResPool<TFTPShortNames::ThrWorker*, std::deque>::thr_pool->end()) {
+          ret = true;
+        } else {
+          ret  =false;
+        }
+        return ret;
+      }
+      //  Get current server status - total number of workers, running workers number, running workers file names
+      [[nodiscard]] std::unique_ptr<TFTPShortNames::SrvStat> srvStatus(void) noexcept {
+        auto thread_lst {std::make_unique<std::vector<std::thread::id>>()};
+        std::unique_ptr<std::vector<std::thread::id>> active_lst, idle_lst;
+        std::unique_ptr<std::vector<TFTPShortNames::fs::path>> file_lst;
+        TFTPShortNames::ranges::transform(active_workers, std::back_inserter(*thread_lst), [](const auto &thr){return thr.get_id();});
+
+        for (const auto& work_count : *ShareResPool<TFTPShortNames::ThrWorker*, std::deque>::thr_pool) {
+          if (!active_lst) {
+            active_lst = std::make_unique<std::vector<std::thread::id>>();
+          }
+          if (!file_lst) {
+            file_lst = std::make_unique<std::vector<TFTPShortNames::fs::path>>();
+          }
+          active_lst->emplace_back(std::get<3>(*work_count));
+          auto fl_mode = *std::get<1>(*work_count);
+          file_lst->emplace_back(std::get<0>(fl_mode));
+        }
+        if (active_lst) {
+          if (active_lst->size() < active_workers.size()) {
+            idle_lst = std::make_unique<std::vector<std::thread::id>>();
+            auto find_idle = [&active_lst](const auto& thr) {
+              auto thr_id = thr.get_id();
+              if (TFTPShortNames::ranges::find(*active_lst, thr_id) == active_lst->end()) {
+                return thr_id;
+              } 
+              return std::thread::id(0x0);
+            };
+            TFTPShortNames::ranges::transform(active_workers, std::back_inserter(*idle_lst), find_idle);
+          }
+        }
+        auto timestamp = std::chrono::system_clock::now();
+        return std::make_unique<TFTPShortNames::SrvStat>(std::make_tuple(std::move(thread_lst), std::move(active_lst), std::move(idle_lst), std::move(file_lst), timestamp));
+      }
+      //  Get information about selected worker
+      [[nodiscard]] TFTPShortNames::TransferState* procStat(std::thread::id id) noexcept {
+        TFTPShortNames::TransferState* ret{nullptr};
+        auto thrCompare = [id] (const auto& thr) {
+          if (thr.get_id() == id) {
+            return true;
+          } else {
+            return false;
+          }
+        };
+        auto findActiveID = [id, &ret] (const auto worker) {
+          auto work_id = std::get<std::thread::id>(*worker);
+          if (work_id == id) {
+            *std::get<std::atomic<bool>*> (*worker)= true;
+            ret = worker;
+            return true;
+          }
+          return false;
+        };
+        if (auto res = TFTPShortNames::ranges::find_if(active_workers, thrCompare); res == active_workers.end()) {
+          return ret;
+        }
+        TFTPShortNames::ranges::for_each(*ShareResPool<TFTPShortNames::TransferState*, std::vector>::thr_pool, findActiveID);
+        return ret;
       }
 
-      while (!stop_worker.load() && !term_worker.load()) {
-        data.clear();
-        if (fl_size) {
-          fl_size.reset();
-        }
-        valread = waitData(&data);
-        if (!valread) {
-          continue;
-        }
-        //  Request analysis, and making data format, convenient for working
-        valread = data.makeFrameStruct();
-        if (!valread) {
-          ConstErrorPacket<BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BAD_FRAME_FORMAT_ERR);
-          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-          continue;
-        }
-        valread = data.getParams(cliaddr, 0);
-        if (!valread) {
-          ConstErrorPacket<BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BAD_FRAME_FORMAT_ERR);
-          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-          continue;
-        }
+    private:
+      size_t max_threads{ 8 };
+      const std::filesystem::path base_dir;
+      size_t file_size;
+      std::atomic<bool> stop_worker{ false }, term_worker{ false }, stop_server{ false };
+      std::vector<std::jthread> active_workers;
+      std::unique_ptr<std::vector<std::pair<std::thread::id, TFTPShortNames::fs::path>>> workers_pool; //  List of all 
+      std::thread connect_mgr;
+      std::mutex stop_worker_mtx;
+      std::shared_ptr<TFTPTools::Log> log;
 
-        request_code = std::get<0>(data.packet_frame_structure);
+      //  Creating transfers workers(threads)
+      bool init(void) {
+        bool ret{ true };
 
-        if(request_code != TFTPOpeCode::TFTP_OPCODE_READ || request_code != TFTPOpeCode::TFTP_OPCODE_WRITE) {
-          ConstErrorPacket<WRONG_REQUEST_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&WRONG_REQUEST_ERR);
-          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-          continue;
+        for (size_t worker_count{ 0 }; worker_count < max_threads; ++worker_count) {
+          active_workers.emplace_back(std::jthread(&TFTPSrv::worker, this));
+          if (!active_workers.back().joinable()) {
+            ret = false;
+            active_workers.pop_back();
+            if (log) {
+              log->debugMsg(__PRETTY_FUNCTION__, "One thread could not be created");
+            }
+          }
+          else {
+            if (log) {
+              std::ostringstream thr_convert;
+              thr_convert << std::this_thread::get_id();
+              const std::string thr_id{ thr_convert.str() };
+              log->debugMsg(__PRETTY_FUNCTION__, "Thread ID - " + thr_id + " created");
+            }
+          }
         }
+        return ret;
+      }
+      //  Transfer worker - clients IO session
+      //  TODO: Add statistic update to base net class methods
+      void worker(void) {
+        bool ret;
+        std::mutex mtx;
+        std::condition_variable cv;
+        std::atomic<bool> current_terminate{false}, upd_stat{false};
+        std::unique_lock<std::mutex> lck(mtx);
+        TFTPShortNames::FileMode file_mode;
+        auto thr_worker = std::make_unique<TFTPShortNames::ThrWorker>(std::make_tuple(&cv, &file_mode, &current_terminate, std::this_thread::get_id(), &upd_stat)); 
+        auto thr_state{std::make_unique<TFTPShortNames::TransferState>()};
+        //auto thr_state = make_unique<TransferState>(make_tuple(std::this_thread::get_id(), base_dir, system_clock::now(), 0, nullptr, nullptr));
+        std::unique_ptr<TFTPTools::NetSock> transfer{};
+        std::ostringstream thr_convert;
+        thr_convert << std::this_thread::get_id();
+        const std::string thr_id{ thr_convert.str() };
+        std::string request_params;
+        TFTPShortNames::OACKOption oack_opt;
+        std::optional<TFTPShortNames::MulticastOption> mult_opt;
+        TFTPShortNames::ReqParam oack_req;
+
+        if (log) {
+          log->debugMsg("Thread ID - " + thr_id, " Starting");
+        }
+        std::get<std::thread::id>(*thr_state) = std::this_thread::get_id();
+        ret = ShareResPool<TFTPShortNames::TransferState*, std::vector>::setRes(thr_state.get());
+        cv.wait(lck);
+
+        while (!stop_worker.load() || !term_worker.load() || !current_terminate.load()) {
+          transfer.reset(new TFTPTools::NetSock{ &file_mode, &term_worker, &current_terminate, log });
+          //  TODO: Add non negotiation scenario!!!
+          //  Send request confirmation
+          if (std::get<7>(file_mode)) {
+            mult_opt = make_tuple(std::get<7>(file_mode).value(), std::get<8>(file_mode).value(), true);
+          }
+          if (std::get<6>(file_mode)) {
+            oack_req = std::make_pair(TFTPShortNames::OptExtent::tsize, std::get<6>(file_mode).value());
+            std::get<0>(oack_opt) = oack_req;
+          }
+          if (std::get<4>(file_mode)) {
+            oack_req = std::make_pair(TFTPShortNames::OptExtent::blksize, std::get<4>(file_mode).value());
+            std::get<1>(oack_opt) = oack_req;
+          }
+          if (std::get<5>(file_mode)) {
+            oack_req = std::make_pair(TFTPShortNames::OptExtent::timeout, std::get<5>(file_mode).value());
+            std::get<2>(oack_opt) = oack_req;
+          }
+          std::get<3>(oack_opt) = mult_opt;
+          ret = transfer->sendOACK(&oack_opt);
+          //  Check response and log
+          if (!ret) {
+            if (log) {
+              log->infoMsg("Thread ID" + thr_id, "Can't send parameters confirmation (OACK) message");
+            }
+            continue;
+          }
+
+          if (log) {
+            request_params += "File - " + std::get<0>(file_mode).string() + "; ";
+            if (std::get<1>(file_mode)) {
+              request_params += "Operation - READ; ";
+            }
+            else {
+              request_params += "Operation - WRITE; ";
+            }
+            if (std::get<2>(file_mode)) {
+              request_params += "Mode - BINARY; ";
+            }
+            else {
+              request_params += "Mode - ASCII; ";
+            }
+            if (auto port{std::get<3>(file_mode)}; port) {
+              request_params += "Port - " + std::to_string(port.value()) + "; ";
+            }
+            if (auto buff_size{std::get<4>(file_mode)}; buff_size) {
+              request_params += "Buffer size - " + std::to_string(buff_size.value()) + "; ";
+            }
+            if (auto timeout{std::get<5>(file_mode)}; timeout) {
+              request_params += "Timeout - " + std::to_string(timeout.value()) + "; ";
+            }
+            if (auto fs_size{std::get<6>(file_mode)}; fs_size) {
+              request_params += "File size - " + std::to_string(fs_size.value()) + "; ";
+            }
+            if (auto mult_addr{std::get<7>(file_mode)};  mult_addr) {
+              request_params += "File size - " +  mult_addr.value() + "; ";
+            }
+            if (auto mult_port{std::get<8>(file_mode)}; mult_port) {
+              request_params += "File size - " + std::to_string(mult_port.value()) + "; ";
+            }
+
+            log->debugMsg("Thread ID" + thr_id, " Started request with params - " + request_params);
+          }
+          
+          //  Creating transfer statistics
+          std::get<TFTPShortNames::fs::path>(*thr_state) = std::get<TFTPShortNames::fs::path>(file_mode);
+          std::get<2>(*thr_state) = std::chrono::system_clock::now();
+          std::get<size_t*>(*thr_state) = &transfer->transfer_size;
+          std::get<std::chrono::time_point<std::chrono::system_clock>*>(*thr_state) = &transfer->timestamp;
+
+          if (auto fs_size{std::get<6>(file_mode)}; fs_size) {
+            std::get<3>(*thr_state) = fs_size.value();
+          } else {
+            std::get<3>(*thr_state) = TFTPShortNames::fs::file_size(std::get<TFTPShortNames::fs::path>(file_mode));
+          }
+
+      
+          //  Start transfer
+          // TODO: Check transfer return type!!! & Add buffer IO as a variant
+          if (auto read_mode{ std::get<1>(file_mode) }; read_mode) {
+            if (std::get<2>(file_mode)) {
+              ret = transfer->readFile<std::byte>();
+            }
+            else {
+              ret = transfer->readFile<char>();
+            }
+          }
+          else {
+            if (std::get<2>(file_mode)) {
+              ret = transfer->writeFile<std::byte>();
+            }
+            else {
+              ret = transfer->writeFile<char>();
+            }
+          }
+          if (log) {
+            log->debugMsg("Thread ID" + thr_id, "File transfer " + std::get<0>(file_mode).string() + "finished");
+          }
+
+          //  Reset optional parameters
+          resetFileModeTup(file_mode, std::index_sequence<3,4,5,6,7,8>{});
+          
+          auto rem = [](auto vec){if (std::get<std::thread::id>(*vec) == std::this_thread::get_id()) return true; return false;};
+          TFTPShortNames::ranges::remove_if(*ShareResPool<TFTPShortNames::TransferState*, std::vector>::thr_pool, rem);
+          // TODO :   Check how terminate in case of fail!!!
+          ret = ShareResPool<TFTPShortNames::ThrWorker*, std::deque>::setRes(thr_worker.get());
+          cv.wait(lck);
+        }
+        std::lock_guard<std::mutex> stop_mtx(stop_worker_mtx);
+        TFTPShortNames::ranges::remove_if(active_workers.begin(), active_workers.end(), [](auto& thr) {if (thr.get_id() == std::this_thread::get_id()) return true; return false;});
+        if (log) {
+          log->debugMsg("Thread ID" + thr_id, "Finished");
+        }
+      }
+      //  Client connections manager
+      void sessionMgr(void) noexcept {
+        bool valread;
+        TFTPDataType::ReadPacket data;
+        TFTPShortNames::fs::path requested_file;
+        TFTPShortNames::TFTPOpeCode request_code;
+        std::optional<size_t> fl_size;
         
-        //  Read request processing
-        if (request_code == TFTPOpeCode::TFTP_OPCODE_READ) {
+        TFTPShortNames::ThrWorker current_worker;
+        TFTPShortNames::FileMode* worker_set;
 
-          //  Check if file exists and accessible
-          requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
-          std::ifstream r_file{ requested_file };
-          if (!r_file) {
-            ConstErrorPacket<FILE_READ_ERR_SIZE> error(TFTPError::Access_Violation, (char*)&FILE_READ_ERR);
+        if (log) {
+          log->infoMsg("Main thread", "Session manager started");
+        }
+
+        while (!stop_worker.load() && !term_worker.load()) {
+          data.clear();
+          if (fl_size) {
+            fl_size.reset();
+          }
+          valread = waitData(&data);
+          if (!valread) {
+            continue;
+          }
+          //  Request analysis, and making data format, convenient for working
+          valread = data.makeFrameStruct();
+          if (!valread) {
+            TFTPDataType::ConstErrorPacket<TFTPShortNames::BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::BAD_FRAME_FORMAT_ERR);
             sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
             continue;
           }
-          fl_size = fs::file_size(requested_file);
-          r_file.close();
-          std::get<6>(data.trans_params) = fl_size.value();
-        }
-        
-        //  Check and correct (if necessary) if requested options are supported
-        valread = checkParam(&data.trans_params, fl_size);
-        if (!valread) {
-          ConstErrorPacket<BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BAD_FRAME_FORMAT_ERR);
-          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-          continue;
-        }
+          valread = data.getParams(cliaddr, 0);
+          if (!valread) {
+            TFTPDataType::ConstErrorPacket<TFTPShortNames::BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::BAD_FRAME_FORMAT_ERR);
+            sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+            continue;
+          }
 
-        auto work{ ShareResPool<ThrWorker*, deque>::getRes() };
-        if (!work) {
-          ConstErrorPacket<BUSY_ERR_SIZE> error(TFTPError::Options_are_not_supported, (char*)&BUSY_ERR);
-          sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-          continue;
-        }
-        worker_set = std::get<FileMode*>(*work);
-        std::get<0>(*worker_set) = std::get<0>(data.trans_params);
-        std::get<1>(*worker_set) = std::get<1>(data.trans_params);
-        std::get<2>(*worker_set) = std::get<2>(data.trans_params);
-        std::get<3>(*worker_set) = std::get<3>(data.trans_params).value();
-        std::get<4>(*worker_set) = std::get<4>(data.trans_params).value();
-        std::get<5>(*worker_set) = std::get<5>(data.trans_params).value();
-        std::get<6>(*worker_set) = std::get<6>(data.trans_params).value();
-        std::get<7>(*worker_set) = std::get<7>(data.trans_params).value();
-        std::get<8>(*worker_set) = std::get<8>(data.trans_params).value();
-        std::get<9>(*worker_set) = std::get<9>(data.trans_params);
-        //  Start new transfer in worker
-        std::get<std::condition_variable*>(current_worker)->notify_one();
-      }
-      stop_server = false;
-      if (log) {
-        log->infoMsg("Main thread", "Session manager finished");
-      }
-    }
+          request_code = std::get<0>(data.packet_frame_structure);
 
-    //  Reset FileMode tuple elements
-    template <typename T> void resetTuple(T& x) {
-      x.reset();
-    }
-    template <typename TupleT, std::size_t... Is>
-    void resetFileModeTup(TupleT& tp, std::index_sequence<Is...>) {
-      (resetTuple(std::get<Is>(tp)), ...);
-    }
+          if(request_code != TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ || request_code != TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE) {
+            TFTPDataType::ConstErrorPacket<TFTPShortNames::WRONG_REQUEST_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::WRONG_REQUEST_ERR);
+            sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+            continue;
+          }
+          
+          //  Read request processing
+          if (request_code == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ) {
+
+            //  Check if file exists and accessible
+            requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
+            std::ifstream r_file{ requested_file };
+            if (!r_file) {
+              TFTPDataType::ConstErrorPacket<TFTPShortNames::FILE_READ_ERR_SIZE> error(TFTPShortNames::TFTPError::Access_Violation, (char*)&TFTPShortNames::FILE_READ_ERR);
+              sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+              continue;
+            }
+            fl_size = TFTPShortNames::fs::file_size(requested_file);
+            r_file.close();
+            std::get<6>(data.trans_params) = fl_size.value();
+          }
+          
+          //  Check and correct (if necessary) if requested options are supported
+          valread = checkParam(&data.trans_params, fl_size);
+          if (!valread) {
+            TFTPDataType::ConstErrorPacket<TFTPShortNames::BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::BAD_FRAME_FORMAT_ERR);
+            sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+            continue;
+          }
+
+          auto work{ ShareResPool<TFTPShortNames::ThrWorker*, std::deque>::getRes() };
+          if (!work) {
+            TFTPDataType::ConstErrorPacket<TFTPShortNames::BUSY_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::BUSY_ERR);
+            sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+            continue;
+          }
+          worker_set = std::get<TFTPShortNames::FileMode*>(*work);
+          std::get<0>(*worker_set) = std::get<0>(data.trans_params);
+          std::get<1>(*worker_set) = std::get<1>(data.trans_params);
+          std::get<2>(*worker_set) = std::get<2>(data.trans_params);
+          std::get<3>(*worker_set) = std::get<3>(data.trans_params).value();
+          std::get<4>(*worker_set) = std::get<4>(data.trans_params).value();
+          std::get<5>(*worker_set) = std::get<5>(data.trans_params).value();
+          std::get<6>(*worker_set) = std::get<6>(data.trans_params).value();
+          std::get<7>(*worker_set) = std::get<7>(data.trans_params).value();
+          std::get<8>(*worker_set) = std::get<8>(data.trans_params).value();
+          std::get<9>(*worker_set) = std::get<9>(data.trans_params);
+          //  Start new transfer in worker
+          std::get<std::condition_variable*>(current_worker)->notify_one();
+        }
+        stop_server = false;
+        if (log) {
+          log->infoMsg("Main thread", "Session manager finished");
+        }
+      }
+
+      //  Reset FileMode tuple elements
+      template <typename T> void resetTuple(T& x) {
+        x.reset();
+      }
+      template <typename TupleT, std::size_t... Is>
+      void resetFileModeTup(TupleT& tp, std::index_sequence<Is...>) {
+        (resetTuple(std::get<Is>(tp)), ...);
+      }
 
   };
 }
 
+namespace TFTPClnLib {
+  //  TFTP client - upload and download dat to/from TFTP server
+  class TFTPCln final : TFTPTools::BaseNet {
+    public :
+      TFTPCln() : TFTPTools::BaseNet(std::move(0)) {}
+      TFTPCln(const size_t& buff_size, const size_t& timeout) : TFTPTools::BaseNet(buff_size, timeout) {}
+      TFTPCln(size_t&& buff_size, size_t&& timeout) : TFTPTools::BaseNet(std::move(buff_size), std::move(timeout)) {}
 
+      TFTPCln(const TFTPCln&) = delete;
+      TFTPCln(TFTPCln&&) = delete;
+      TFTPCln& operator = (const TFTPCln&) = delete;
+      TFTPCln& operator = (TFTPCln&&) = delete;
+      
+      std::variant<size_t, std::string_view> downLoad(const std::string& srv_addr,
+                                                      const size_t& port,
+                                                      const std::string& remote_file,
+                                                      std::filesystem::path& local_file,
+                                                      std::optional<size_t> buff_size,
+                                                      std::optional<size_t> timeout,
+                                                      bool bin_mode,
+                                                      bool reset_file) {
+        std::variant<size_t, std::string_view> ret;
+        std::unique_ptr<TFTPTools::FileIO> in_file;
+        std::optional<size_t> file_size {0};
+        TFTPShortNames::TransferMode trans_mode;
+        TFTPDataType::ReadPacket srv_response;
+        std::unique_ptr<TFTPDataType::RecPacket<std::byte>> srv_data_bin;
+        std::unique_ptr<TFTPDataType::RecPacket<char>> srv_data_str;
+        auto ack_packet {std::make_unique<TFTPDataType::ACKPacket>(0)};
+        size_t packet_count {0}, curr_packet_size {0}, total_transfer_size {0};
+        int send_dat;
+        bool transform_res;
+        socklen_t addr_len;
+        std::variant<bool, std::string> wr_res;
+
+        struct addrinfo *srv_conn_data;
+        struct timeval tv;
+        tv.tv_sec = 0;
+        
+        if (service_ini_stat.has_value()) {
+          ret = service_ini_stat.value();
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        if (srv_conn_data = connectSrv(srv_addr, port); srv_conn_data == nullptr) {
+          ret = "Wrong address data for destination server";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        addr_len = sizeof (srv_conn_data);
+        in_file = std::make_unique<TFTPTools::FileIO>(local_file, false, bin_mode, reset_file);
+        if (!in_file->file_is_open) {
+          ret = "Can't open file";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        //  Negotiation process data
+        if (bin_mode) {
+          trans_mode = TFTPShortNames::TransferMode::octet;
+        } else {
+          trans_mode = TFTPShortNames::TransferMode::netascii;
+        }
+        auto req_pack_size {countPackSize(local_file, trans_mode, file_size, buff_size, timeout)};
+        TFTPClnDataType::WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> read_req(remote_file, trans_mode, req_pack_size, file_size, timeout, buff_size);
+        //  Transfer negotiation
+        send_dat = sendto(sock_id, read_req.packet, req_pack_size, 0, (struct sockaddr*) srv_conn_data, addr_len);
+        if (send_dat == TFTPShortNames::SOCKET_ERR) {
+          ret = "Can't send transfer negotiation request";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        send_dat = recvfrom(sock_id, srv_response.packet, TFTPShortNames::PACKET_MAX_SIZE, 0, (struct sockaddr*) srv_conn_data, &addr_len);
+        if (send_dat == TFTPShortNames::SOCKET_ERR) {
+          ret = "Can't send transfer negotiation request";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        transform_res = srv_response.makeFrameStruct(send_dat);
+        if (!transform_res) {
+          ret = "Can't create respose data structure";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        if (auto mode {std::get<TFTPShortNames::TFTPOpeCode>(srv_response.packet_frame_structure)}; mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ERROR) {
+          if (auto err_code{std::get<std::optional<TFTPShortNames::TFTPError>>(srv_response.packet_frame_structure)}; TFTPShortNames::ErrorCodeChar.contains(err_code.value())) {
+            std::string err_str {"Error code - "};
+            err_str += TFTPShortNames::ErrorCodeChar.at(err_code.value());
+            if (auto err_msg_start{std::get<4>(srv_response.packet_frame_structure)}; err_msg_start.has_value()) {
+              size_t msg_start_pos {err_msg_start.value()};
+              if (auto err_msg_end{std::get<5>(srv_response.packet_frame_structure)}; err_msg_end.has_value()) {
+                size_t msg_end_pos {err_msg_start.value()};
+                std::string err_txt {&srv_response.packet[msg_start_pos], msg_end_pos - msg_start_pos};
+                err_str += " " + err_txt;
+              }
+            }
+            ret = err_str;
+          }
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_DATA) {
+          if (auto dat_msg_start{std::get<4>(srv_response.packet_frame_structure)}; dat_msg_start.has_value()) {
+            size_t msg_start_pos {dat_msg_start.value()};
+            if (auto dat_msg_end{std::get<5>(srv_response.packet_frame_structure)}; dat_msg_end.has_value()) {
+              size_t msg_end_pos {dat_msg_start.value()};
+              size_t msg_size {msg_end_pos - msg_start_pos};
+              if (bin_mode) {
+                wr_res = in_file->writeFile<std::byte>((std::byte*)&srv_response.packet[msg_start_pos], msg_size);
+              } else {
+                wr_res = in_file->writeFile<char>(&srv_response.packet[msg_start_pos], msg_size);
+              }
+              //  File access event error message
+              if (auto res_val {std::get_if<std::string>(&wr_res)}; res_val) {
+                TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+                sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+                ret = *res_val;
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) srv_conn_data, addr_len);
+              if (send_dat == TFTPShortNames::SOCKET_ERR) {
+                ret = "Can't send transfer confirmation response";
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              ++packet_count;
+              //  Check if transfer ended
+              if (msg_size < TFTPShortNames::PACKET_DATA_SIZE) {
+                return msg_size;
+              }
+              //  Creating data structure for data transfer
+              if (bin_mode) {
+                srv_data_bin = std::make_unique<TFTPDataType::RecPacket<std::byte>>(TFTPShortNames::PACKET_DATA_SIZE);
+              } else {
+                srv_data_str = std::make_unique<TFTPDataType::RecPacket<char>>(TFTPShortNames::PACKET_DATA_SIZE);
+              }
+            }
+          }
+        } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_OACK) {
+          auto set_transfer_params = [this, &timeout, &buff_size, &file_size, &tv](auto& param) {
+            switch (param.first) {
+              case TFTPShortNames::OptExtent::tsize : file_size = param.second; break;
+              case TFTPShortNames::OptExtent::timeout : tv.tv_sec = param.second; break;
+              case TFTPShortNames::OptExtent::blksize : BaseNet::buff_size = param.second; break;
+              case TFTPShortNames::OptExtent::multicast : break; // TODO: Should be defined later
+              default:;
+            }
+          };
+          if (auto srv_params {srv_response.req_params}; srv_params.has_value()) {
+            std::ranges::for_each(srv_params.value(), set_transfer_params);
+            if (tv.tv_sec) {
+              if (auto set_option{setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))}; set_option == TFTPShortNames::SOCKET_ERR) {
+                ret = "Set transfer timeout error";
+                return ret;
+              }
+            }
+          }
+          if (BaseNet::buff_size > buff_size) {
+            //  Creating data structure for data transfer
+              if (bin_mode) {
+                srv_data_bin = std::make_unique<TFTPDataType::RecPacket<std::byte>>(BaseNet::buff_size);
+              } else {
+                srv_data_str = std::make_unique<TFTPDataType::RecPacket<char>>(BaseNet::buff_size);
+              }
+            send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) srv_conn_data, addr_len);
+            if (send_dat == TFTPShortNames::SOCKET_ERR) {
+              ret = "Can't send transfer confirmation response";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+            ++packet_count;
+          } else {
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::OPTIONS_ERR_SIZE, TFTPShortNames::TFTPError::Options_are_not_supported, TFTPShortNames::OPTIONS_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::OPTIONS_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+            ret = "Wrong options";
+            freeaddrinfo(srv_conn_data);
+            return ret;
+          }
+        } 
+        //  Creating data transfer process
+        while (true) {
+          if (bin_mode) {
+            send_dat = recvfrom(sock_id, srv_data_bin->packet, srv_data_bin->packet_size, 0, (struct sockaddr*) srv_conn_data, &addr_len);
+            if (send_dat >= 0) {
+              curr_packet_size = send_dat;
+              total_transfer_size += send_dat;
+            }
+            //  Check transfer status
+            if (send_dat == TFTPShortNames::SOCKET_ERR) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Wrong incoming packet";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+            //  Check package opcode (packet could be an error)
+            srv_data_bin->pacDeCode();
+            if (auto opcode {srv_data_bin->getOpCode()}; opcode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ERROR) {
+              std::string tmp_err_msg;
+              auto err_code {srv_data_bin->getErrCode()};
+              if (err_code.has_value()) {
+                if (TFTPShortNames::ErrorCodeChar.contains(err_code.value())) {
+                  tmp_err_msg += "Error code " + TFTPShortNames::ErrorCodeChar.at(err_code.value());
+                } else {
+                  freeaddrinfo(srv_conn_data);
+                  ret =  "Transfer terminated with wrong error code";
+                  return ret;
+                }
+              }
+              auto err_msg_data {srv_data_bin->getData()};
+              if (err_msg_data.has_value()) {
+                std::string err_data ((char*)err_msg_data.value().first, err_msg_data.value().second);
+                tmp_err_msg += " " + err_data;
+              }
+              ret = tmp_err_msg;
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            } else if (opcode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_DATA) {
+              auto pack_num {srv_data_bin->getBlockNumber()};
+              if (pack_num.has_value()) {
+                if (pack_num.value() != packet_count) {
+                  TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+                  sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+                  ret = "Wrong incoming packet";
+                  freeaddrinfo(srv_conn_data);
+                  return ret;
+                }
+              } else {
+                TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+                sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+                ret = "Wrong incoming packet";
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              wr_res = in_file->writeFile<std::byte>((std::byte*)srv_data_bin->packet, srv_data_bin->packet_size);
+              if (auto res_val {std::get_if<std::string>(&wr_res)}; res_val) {
+                TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+                sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+                ret = *res_val;
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              ack_packet->setNumber(packet_count);
+              send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) srv_conn_data, addr_len);
+              if (send_dat == TFTPShortNames::SOCKET_ERR) {
+                ret = "Can't send transfer confirmation response";
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              ++packet_count;
+              //  Check if data transfer finished
+              if (srv_data_bin->packet_size > curr_packet_size) {
+                ret = total_transfer_size;
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+            } else {  //  Wrong packet opcode
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Wrong incoming packet";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+          } else {  //  ASCII mode data transfer
+            send_dat = recvfrom(sock_id, srv_data_str->packet, srv_data_bin->packet_size, 0, (struct sockaddr*) srv_conn_data, &addr_len);
+            if (send_dat >= 0) {
+              curr_packet_size = send_dat;
+              total_transfer_size += send_dat;
+            }
+            //  Check transfer status
+            if (send_dat == TFTPShortNames::SOCKET_ERR) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Wrong incoming packet";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+             //  Check package opcode (could be an error)
+            srv_data_bin->pacDeCode();
+            if (auto opcode {srv_data_str->getOpCode()}; opcode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ERROR) {
+              std::string tmp_err_msg;
+              auto err_code {srv_data_str->getErrCode()};
+              if (err_code.has_value()) {
+                if (TFTPShortNames::ErrorCodeChar.contains(err_code.value())) {
+                  tmp_err_msg += "Error code " + TFTPShortNames::ErrorCodeChar.at(err_code.value());
+                } else {
+                  freeaddrinfo(srv_conn_data);
+                  ret =  "Transfer terminated with wrong error code";
+                  return ret;
+                }
+              }
+              auto err_msg_data {srv_data_str->getData()};
+              if (err_msg_data.has_value()) {
+                std::string err_data ((char*)err_msg_data.value().first, err_msg_data.value().second);
+                tmp_err_msg += " " + err_data;
+              }
+              ret = tmp_err_msg;
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            } else if (opcode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_DATA) {
+              auto pack_num {srv_data_str->getBlockNumber()};
+              if (pack_num.has_value()) {
+                if (pack_num.value() != packet_count) {
+                  TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+                  sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+                  ret = "Wrong incoming packet";
+                  freeaddrinfo(srv_conn_data);
+                  return ret;
+                }
+              } else {
+                TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+                sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+                ret = "Wrong incoming packet";
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              wr_res = in_file->writeFile<char>(srv_data_str->packet, srv_data_str->packet_size);
+              if (auto res_val {std::get_if<std::string>(&wr_res)}; res_val) {
+                TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+                sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+                ret = *res_val;
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              ack_packet->setNumber(packet_count);
+              send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) srv_conn_data, addr_len);
+              if (send_dat == TFTPShortNames::SOCKET_ERR) {
+                ret = "Can't send transfer confirmation response";
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              //  Check if data transfer finished
+              if (srv_data_bin->packet_size > curr_packet_size) {
+                ret = total_transfer_size;
+                freeaddrinfo(srv_conn_data);
+                return ret;
+              }
+              ++packet_count;
+            } else {  //  Wrong packet opcode
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Wrong incoming packet";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+          }
+        }
+      }
+      std::variant<size_t, std::string_view> upLoad(const std::string& srv_addr,
+                                                    const size_t& port,
+                                                    const std::string& remote_file,
+                                                    std::filesystem::path& local_file,
+                                                    std::optional<size_t> buff_size,
+                                                    std::optional<size_t> timeout,
+                                                    bool bin_mode) {
+        std::variant<size_t, std::string_view> ret;
+        std::unique_ptr<TFTPTools::FileIO> io_file;
+        TFTPDataType::ReadPacket srv_response;
+        struct addrinfo *srv_conn_data;
+        TFTPShortNames::TransferMode trans_mode;
+        socklen_t addr_len;
+        std::unique_ptr<TFTPDataType::SendData<std::byte>> srv_data_bin;
+        std::unique_ptr<TFTPDataType::SendData<char>> srv_data_str;
+        std::unique_ptr<TFTPDataType::ReadFileData<std::byte>> file_buff_bin;
+        std::unique_ptr<TFTPDataType::ReadFileData<char>> file_buff_str;
+        std::variant<bool, std::string> file_read_stat;
+        auto ack_packet {std::make_unique<TFTPDataType::ACKPacket>(0)};
+        size_t packet_count {0};
+        int send_dat;
+        bool transform_res, fl_open;
+        std::variant<bool, std::string> wr_res;
+        struct timeval tv;
+        tv.tv_sec = 0;
+
+        if (service_ini_stat.has_value()) {
+          ret = service_ini_stat.value();
+          return ret;
+        }
+        if (srv_conn_data = connectSrv(srv_addr, port); srv_conn_data == nullptr) {
+          ret = "Wrong address data for destination server";
+          return ret;
+        }
+        addr_len = sizeof (srv_conn_data);
+        io_file = std::make_unique<TFTPTools::FileIO>(local_file, false, bin_mode);
+        if (!io_file->file_is_open) {
+          ret = "Can't open file";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        //  Negotiation process data
+        if (bin_mode) {
+          trans_mode = TFTPShortNames::TransferMode::octet;
+        } else {
+          trans_mode = TFTPShortNames::TransferMode::netascii;
+        }
+        auto req_pack_size {countPackSize(local_file, trans_mode, file_size, buff_size, timeout)};
+        TFTPClnDataType::WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE> write_req(remote_file, trans_mode, req_pack_size, file_size, timeout, buff_size);
+        //  Transfer negotiation
+        send_dat = sendto(sock_id, write_req.packet, req_pack_size, 0, (struct sockaddr*) srv_conn_data, addr_len);
+        if (send_dat == TFTPShortNames::SOCKET_ERR) {
+          ret = "Can't send transfer negotiation request";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        send_dat = recvfrom(sock_id, srv_response.packet, TFTPShortNames::PACKET_MAX_SIZE, 0, (struct sockaddr*) srv_conn_data, &addr_len);
+        if (send_dat == TFTPShortNames::SOCKET_ERR) {
+          ret = "Can't send transfer negotiation request";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        transform_res = srv_response.makeFrameStruct(send_dat);
+        if (!transform_res) {
+          ret = "Can't create respose data structure";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        if (auto mode {std::get<TFTPShortNames::TFTPOpeCode>(srv_response.packet_frame_structure)}; mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ERROR) {
+          if (auto err_code{std::get<std::optional<TFTPShortNames::TFTPError>>(srv_response.packet_frame_structure)}; TFTPShortNames::ErrorCodeChar.contains(err_code.value())) {
+            std::string err_str {"Error code - "};
+            err_str += TFTPShortNames::ErrorCodeChar.at(err_code.value());
+            if (auto err_msg_start{std::get<4>(srv_response.packet_frame_structure)}; err_msg_start.has_value()) {
+              size_t msg_start_pos {err_msg_start.value()};
+              if (auto err_msg_end{std::get<5>(srv_response.packet_frame_structure)}; err_msg_end.has_value()) {
+                size_t msg_end_pos {err_msg_start.value()};
+                std::string err_txt {&srv_response.packet[msg_start_pos], msg_end_pos - msg_start_pos};
+                err_str += " " + err_txt;
+              }
+            }
+            ret = err_str;
+          }
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ACK) {
+          //  Creating data structure for data transfer
+          if (bin_mode) {
+            srv_data_bin = std::make_unique<TFTPDataType::SendData<std::byte>>(TFTPShortNames::PACKET_DATA_SIZE);
+            file_buff_bin = std::make_unique<TFTPDataType::ReadFileData<std::byte>>(TFTPShortNames::PACKET_DATA_SIZE);
+          } else {
+            srv_data_str = std::make_unique<TFTPDataType::SendData<char>>(TFTPShortNames::PACKET_DATA_SIZE);
+            file_buff_str = std::make_unique<TFTPDataType::ReadFileData<char>>(TFTPShortNames::PACKET_DATA_SIZE);
+          }
+          if (auto rec_pack_num {srv_response.getBlockNumber()}; rec_pack_num.has_value()) {
+            packet_count = rec_pack_num.value() + 1;
+          } else {
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+            ret = "Wrong incoming packet";
+            freeaddrinfo(srv_conn_data);
+            return ret;
+          }
+        } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_OACK) {
+          auto set_transfer_params = [this, &timeout, &buff_size, &tv](auto& param) {
+            switch (param.first) {
+              case TFTPShortNames::OptExtent::tsize : file_size = param.second; break;
+              case TFTPShortNames::OptExtent::timeout : tv.tv_sec = param.second; break;
+              case TFTPShortNames::OptExtent::blksize : BaseNet::buff_size = param.second; break;
+              case TFTPShortNames::OptExtent::multicast : break; // TODO: Should be defined later
+              default:;
+            }
+          };
+          if (auto srv_params {srv_response.req_params}; srv_params.has_value()) {
+            std::ranges::for_each(srv_params.value(), set_transfer_params);
+            if (tv.tv_sec) {
+              if (auto set_option{setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))}; set_option == TFTPShortNames::SOCKET_ERR) {
+                ret = "Set transfer timeout error";
+                return ret;
+              }
+            }
+          }
+          if (bin_mode) {
+            srv_data_bin = std::make_unique<TFTPDataType::SendData<std::byte>>(BaseNet::buff_size);
+            file_buff_bin = std::make_unique<TFTPDataType::ReadFileData<std::byte>>(BaseNet::buff_size);
+          } else {
+            srv_data_str = std::make_unique<TFTPDataType::SendData<char>>(BaseNet::buff_size);
+            file_buff_str = std::make_unique<TFTPDataType::ReadFileData<char>>(BaseNet::buff_size);
+          }
+        } else {  //  Wrong packet opcode
+          TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+          sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+          ret = "Wrong incoming packet";
+          freeaddrinfo(srv_conn_data);
+          return ret;
+        }
+        //  Creating data transfer process
+        while (true) {
+          ++packet_count;
+          //  Send data to server
+          if (bin_mode) {
+            file_read_stat = io_file->readFile(&*file_buff_bin);
+            if (auto status {std::get_if<std::string>(&file_read_stat)}; status) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Can't send data to server" + *status;
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+            fl_open = srv_data_bin->setData(packet_count, &*file_buff_bin);
+            if (!fl_open) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Can't send data to server";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+            send_dat = sendto(sock_id, srv_data_bin->packet, srv_data_bin->packet_size, 0, (struct sockaddr*) srv_conn_data, addr_len);
+            if (send_dat == TFTPShortNames::SOCKET_ERR) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Can't send data to server";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+          } else {
+            file_read_stat = io_file->readFile(&*file_buff_str);
+            if (auto status {std::get_if<std::string>(&file_read_stat)}; status) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Can't send data to server " + *status;
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+            fl_open = srv_data_str->setData(packet_count, &*file_buff_str);
+            if (!fl_open) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Can't send data to server";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+            send_dat = sendto(sock_id, srv_data_str->packet, srv_data_str->packet_size, 0, (struct sockaddr*) srv_conn_data, addr_len);
+            if (send_dat == TFTPShortNames::SOCKET_ERR) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Can't send data to server";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+          }
+          //  Read servers confirmation
+          send_dat = recvfrom(sock_id, srv_response.packet, TFTPShortNames::PACKET_MAX_SIZE, 0, (struct sockaddr*) srv_conn_data, &addr_len);
+          if (send_dat == TFTPShortNames::SOCKET_ERR) {
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+            ret = "Can't get servers confirmation";
+            freeaddrinfo(srv_conn_data);
+            return ret;
+          }
+          transform_res = srv_response.makeFrameStruct(send_dat);
+          if (!transform_res) {
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+            ret = "Can't create respose data structure";
+            freeaddrinfo(srv_conn_data);
+            return ret;
+          }
+          if (auto op_code {srv_response.getOpCode()}; op_code == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ACK) {
+            if (auto curr_count {srv_response.getBlockNumber()}; curr_count == packet_count) {
+              ++packet_count;
+              continue;
+            } else {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+              ret = "Wrong packet count";
+              freeaddrinfo(srv_conn_data);
+              return ret;
+            }
+          } else {
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) srv_conn_data, addr_len);
+            ret = "Wrong packet count";
+            freeaddrinfo(srv_conn_data);
+            return ret;
+          }
+        }
+
+      }
+      //  Current transfer statistics
+      [[nodiscard]] size_t getDataSize(void) const noexcept {
+        return trans_stat_byte;
+      }
+      [[nodiscard]] size_t getDataPcn(void) const noexcept {
+        //return trans_stat_pcn;
+      }
+    private :
+      size_t trans_stat_byte{0};  //  Bytes transmitted
+      struct addrinfo* connectSrv(const std::string& srv_name, const size_t& port) {
+        struct addrinfo hints;
+        struct addrinfo *servinfo = nullptr;  
+
+        memset(&hints, 0, sizeof hints); 
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_DGRAM;
+
+        if (auto res  {getaddrinfo(srv_name.c_str(), std::to_string(port).c_str(), &hints, &servinfo)}; res != 0) {
+          servinfo = nullptr;
+        }
+        return servinfo;
+      }
+      [[nodiscard]] size_t countPackSize(const std::string& filename, 
+                                         const TFTPShortNames::TransferMode& trans_mode,
+                                         const std::optional<size_t>& t_size,
+                                         const std::optional<size_t>& blk_size,
+                                         const std::optional<uint16_t>& timeout) const noexcept {
+        size_t ret {2};
+        size_t str_size;
+        ret += filename.size() + 1;
+        if (trans_mode == TFTPShortNames::TransferMode::netascii) {
+          ret += 9;
+        } else {
+          ret += 6;
+        }
+        if (t_size.has_value()) {
+          ret += 5;
+          str_size = std::to_string(t_size.value()).size();
+          ret += str_size + 1;
+        }
+        if (blk_size.has_value()) {
+          ret += 7;
+          str_size = std::to_string(blk_size.value()).size();
+          ret += str_size + 1;
+        }
+        if (timeout.has_value()) {
+          ret += 7;
+          str_size = std::to_string(blk_size.value()).size();
+          ret += str_size + 1;
+        }
+        return ret;
+      }
+  };
+}
 #endif // LIBTFTP_HPP
