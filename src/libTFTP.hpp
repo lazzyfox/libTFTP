@@ -459,7 +459,7 @@ namespace TFTPDataType {
   struct BasePacket {
     const size_t size{ packet_size };
     T packet[packet_size];
-    void clear() {
+    [[noreturn]] void clear() {
       if constexpr (std::is_same<T, char>::value) {
         memset(packet, '\0', packet_size);
       }
@@ -478,7 +478,7 @@ namespace TFTPDataType {
       packet = new T[size];
     }
 
-    void clear(void) {
+    [[noreturn]] void clear(void) {
       if constexpr (std::is_same<T, char>::value) {
         memset(packet, '\0', packet_size);
       }
@@ -549,7 +549,7 @@ namespace TFTPDataType {
     [[nodiscard]] optional<uint16_t> getDataAddr(void) const noexcept { return std::get<3>(packet_frame_structure); }
 
     //  Set data to packet to send to client
-    void setDataFrame(T* data_frame, uint16_t packet_number, ReadFileData<T>* data_in) {
+    [[noreturn]] void setDataFrame(T* data_frame, uint16_t packet_number, ReadFileData<T>* data_in) {
       uint16_t op_code{ 3 };
       uint16_t pacl_num{htons(packet_number)};
       memmove(&data_frame[0], &op_code, sizeof(op_code));
@@ -571,7 +571,7 @@ namespace TFTPDataType {
     optional<MulticastOption> multicast;
     FileMode trans_params;
     //  Clear data in struct 
-    void reset(void) {
+    [[noreturn]] void reset(void) {
       clear();
 
       std::get<1>(packet_frame_structure).reset();
@@ -1030,14 +1030,14 @@ namespace TFTPDataType {
   template <typename T> requires TransType<T>
   struct DataPacket final : Packet<T>, PacketTools<T> {
     DataPacket(size_t size) : Packet<T>{ size * 2 * sizeof(uint16_t) }, PacketTools<T>{} {}
-    void makeFrameStruct(void) noexcept {
+    [[noreturn]] void makeFrameStruct(void) noexcept {
       uint16_t net_code;
       memcpy(&net_code, Packet<T>::packet, sizeof(uint16_t));
       const auto opcode{ ntohs(net_code) };
       auto dataLayOut{ PacketTools<T>::req_data.at(opcode) };
       dataLayOut(opcode, Packet<T>::packet);
     }
-    void setData(uint16_t packet_number, ReadFileData<T>* data) {
+    [[noreturn]] void setData(uint16_t packet_number, ReadFileData<T>* data) {
       Packet<T>::clear();
       PacketTools<T>::setDataFrame(Packet<T>::packet, packet_number, data);
     }
@@ -1048,7 +1048,7 @@ namespace TFTPDataType {
     const uint16_t op_code{ htons(4) };
     ACKPacket() = default;
     ACKPacket(const uint16_t pack_number) { setNumber(pack_number); };
-    void setNumber(const uint16_t pack_number) {
+    [[noreturn]] void setNumber(const uint16_t pack_number) {
       const uint16_t num{ htons(pack_number) };
       memcpy((char*)&BasePacket<PACKET_ACK_SIZE, char>::packet[0], &op_code, sizeof(op_code));
       memmove((char*)&BasePacket<PACKET_ACK_SIZE, char>::packet[2], &num, sizeof(pack_number));
@@ -1244,7 +1244,7 @@ namespace TFTPTools {
     IO_BUFFER(const IO_BUFFER&&) = delete;
     IO_BUFFER& operator = (IO_BUFFER&) = delete;
 
-    void clear(void) noexcept {
+    [[noreturn]] void clear(void) noexcept {
       curr_size = 0;
       memset(buffer, '\0', size);
     }
@@ -1460,7 +1460,7 @@ namespace TFTPTools {
       std::ofstream write_file;
       std::ifstream read_file;
       //  File transfer operations initialisation
-      void initTransfer(const bool read, const bool bin) noexcept {
+      [[noreturn]] void initTransfer(const bool read, const bool bin) noexcept {
         if (fs::exists(file_name)) {
           if (read) {
             if (bin) {
@@ -1497,7 +1497,7 @@ namespace TFTPTools {
           }
         }
       }
-      void initTransfer(const bool read, const bool bin, const bool reset) noexcept {
+      [[noreturn]] void initTransfer(const bool read, const bool bin, const bool reset) noexcept {
         if (fs::exists(file_name)) {
           if (read) {
             if (bin) {
@@ -1630,9 +1630,9 @@ namespace TFTPTools {
     //  Service initialisation status
     optional<string_view> service_ini_stat;
     //  Transfer param
-    size_t buff_size{ 512 };
-    size_t timeout{ 3 };
-    size_t file_size{ 0 };
+    size_t buff_size { 512 };
+    size_t timeout { 3 };
+    size_t file_size { 0 };
     
     BaseNet(const size_t& port) : port{ port } {
       service_ini_stat = init(port);
@@ -1785,7 +1785,7 @@ namespace TFTPTools {
       }
       return ret;
     }
-    void sendErr(const TFTPError err_code, const char* err_msg) {
+    [[noreturn]] void sendErr(const TFTPError err_code, const char* err_msg) {
       auto err_size{strlen(err_msg)};
       ErrorPacket err_pack(err_size, err_code, err_msg);
       sendto(sock_id, err_pack.packet, err_size + PACKET_DATA_OVERHEAD , 0, (const struct sockaddr*)&cliaddr, cli_addr_size);
@@ -2459,7 +2459,7 @@ namespace MemoryManager {
         return ret;
       }
       //  Buffer management tools
-      void clear (void) noexcept {
+      [[noreturn]] void clear (void) noexcept {
         used_size = 0;
       }
       bool reSet(const size_t& blk_num, const size_t& blk_size) {
@@ -2549,7 +2549,7 @@ namespace MemoryManager {
 
         explicit DskStopThrVisitor (jthread* const thr) : thr{thr}{}
         DskStopThrVisitor(jthread* const thr, shared_ptr<Log> log, FileIO* const file) : thr{thr}, log{log}, file{file}{}
-        void operator()(const bool &condition) {
+        [[noreturn]] void operator()(const bool &condition) {
           if (!condition && thr) {
             if (thr->joinable()) {
               thr->request_stop();
@@ -2557,7 +2557,7 @@ namespace MemoryManager {
             break_thr = true;
           }
         }
-        void operator()(const string& str){
+        [[noreturn]] void operator()(const string& str){
           if (log) {
             string msg {"Operation with file"};
             msg += file->getFilePath().string();
@@ -2573,8 +2573,8 @@ namespace MemoryManager {
         FileIO* const file{nullptr};
         explicit GetDatVisitor(FileIO* const file) : file{file}{}
         GetDatVisitor(shared_ptr<Log> log, FileIO* const file) : log{log}, file{file}{}
-        void operator()(size_t res) {ret_data_numbers = res;}
-        void operator()(string_view err_str) {
+        [[noreturn]] void operator()(size_t res) {ret_data_numbers = res;}
+        [[noreturn]] void operator()(string_view err_str) {
           if (log) {
             string msg {"Operation with file"};
             msg += file->getFilePath().string();
@@ -2585,7 +2585,7 @@ namespace MemoryManager {
       };
       //  Write buffers cashed data to file (from passive one)
       template <typename T> requires TransType<T>
-      void toDskThr(std::stop_token stop_token) {
+      [[noreturn]] void toDskThr(std::stop_token stop_token) {
         T buff_data[buff_size];
         variant<bool, string> res_var;
         unique_ptr<DskStopThrVisitor> thr_stop_vis;
@@ -2641,7 +2641,7 @@ namespace MemoryManager {
       }
       //  Fill cash buffer (in reverse order) by requested file data
       template <typename T> requires TransType<T>
-      void fromDskThr(std::stop_token stop_token) {
+      [[noreturn]] void fromDskThr(std::stop_token stop_token) {
         size_t data_rest{file_size};
         ReadFileData<T> read_buff(session_buff_size);
         variant<bool, string> res_var;
@@ -2686,7 +2686,7 @@ namespace MemoryManager {
         passive_buff->buff_not_busy = true;
         passive_buff->thr_copy_finish.notify_all();
       }
-      void swapBuff(void) {
+      [[noreturn]] void swapBuff(void) {
         auto tmp = passive_buff;
         passive_buff = active_buff;
         active_buff = tmp;
@@ -2730,7 +2730,7 @@ namespace MemoryManager {
         return ret;
       }
 
-      void reStartThr(void) noexcept {
+      [[noreturn]] void reStartThr(void) noexcept {
         swapBuff();
         stop_io = true;
         continue_io.notify_all();
@@ -3738,7 +3738,7 @@ namespace TFTPSrvLib {
       }
       //  Transfer worker - clients IO session
       //  TODO: Add statistic update to base net class methods
-      void worker(void) {
+      [[noreturn]] void worker(void) {
         bool ret;
         std::mutex mtx;
         std::condition_variable cv;
@@ -3880,7 +3880,7 @@ namespace TFTPSrvLib {
         }
       }
       //  Client connections manager
-      void sessionMgr(void) noexcept {
+      [[noreturn]] void sessionMgr(void) noexcept {
         bool valread;
         TFTPDataType::ReadPacket data;
         TFTPShortNames::fs::path requested_file;
@@ -3976,11 +3976,12 @@ namespace TFTPSrvLib {
       }
 
       //  Reset FileMode tuple elements
-      template <typename T> void resetTuple(T& x) {
+      template <typename T>
+      [[noreturn]] void resetTuple(T& x) {
         x.reset();
       }
       template <typename TupleT, std::size_t... Is>
-      void resetFileModeTup(TupleT& tp, std::index_sequence<Is...>) {
+      [[noreturn]] void resetFileModeTup(TupleT& tp, std::index_sequence<Is...>) {
         (resetTuple(std::get<Is>(tp)), ...);
       }
 
@@ -3994,6 +3995,14 @@ namespace TFTPClnLib {
       TFTPCln() : TFTPTools::BaseNet(std::move(0)) {}
       TFTPCln(const size_t& buff_size, const size_t& timeout) : TFTPTools::BaseNet(buff_size, timeout) {}
       TFTPCln(size_t&& buff_size, size_t&& timeout) : TFTPTools::BaseNet(std::move(buff_size), std::move(timeout)) {}
+      TFTPCln(const std::optional<size_t>& buff_size, const std::optional<size_t>& timeout) : TFTPTools::BaseNet() {
+        if (buff_size.has_value()) {
+          this->buff_size = buff_size.value();
+        }
+        if (timeout.has_value()) {
+          this->timeout = timeout.value();
+        }
+      }
 
       TFTPCln(const TFTPCln&) = delete;
       TFTPCln(TFTPCln&&) = delete;
@@ -4025,7 +4034,13 @@ namespace TFTPClnLib {
         struct addrinfo *srv_conn_data;
         struct timeval tv;
         tv.tv_sec = 0;
-        
+        //  Check input params
+        if (srv_addr.empty() || remote_file.empty() || local_file.empty()) {
+          ret = "Wrong input data";
+          return ret;
+        }
+
+
         if (service_ini_stat.has_value()) {
           ret = service_ini_stat.value();
           freeaddrinfo(srv_conn_data);
@@ -4360,6 +4375,11 @@ namespace TFTPClnLib {
         struct timeval tv;
         tv.tv_sec = 0;
 
+        //  Check input params
+        if (srv_addr.empty() || remote_file.empty() || local_file.empty()) {
+          ret = "Wrong input data";
+          return ret;
+        }
         if (service_ini_stat.has_value()) {
           ret = service_ini_stat.value();
           return ret;
