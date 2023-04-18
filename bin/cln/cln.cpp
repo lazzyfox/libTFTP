@@ -30,6 +30,8 @@ constexpr std::string_view hlp {"Possible values for command line : \n -p port n
                                 \n -q to exit application,\
                                 \n -? help"};
 
+
+
 int main(int argc, char* argv[]) {
   int port_id {5001};
   std::string ip_addr;
@@ -43,6 +45,22 @@ int main(int argc, char* argv[]) {
   bool transfer_mode;
   std::unique_ptr<TFTPCln> cln;
   std::variant<size_t, std::string_view> transmission_res;
+
+  enum class ParmVal : uint8_t {PortID, ServerIP, UplFileName, DownFileName, LocalDirPath, LocalFileName, PackSize, TimeOut, TransMode, Quit, Hlp};
+  
+  const std::vector<std::string> in_str_key {"-p", "-a", "-u", "-d", "-l", "-f", "-b", "-t", "-m", "-q", "-?"};  
+  const std::unordered_map<char, ParmVal> in_str_val {{'p', ParmVal::PortID},
+                                                      {'a', ParmVal::ServerIP},
+                                                      {'u', ParmVal::UplFileName},
+                                                      {'d', ParmVal::DownFileName},
+                                                      {'l', ParmVal::LocalDirPath},
+                                                      {'f', ParmVal::LocalFileName},
+                                                      {'b', ParmVal::PackSize},
+                                                      {'t', ParmVal::TimeOut},
+                                                      {'m', ParmVal::TransMode},
+                                                      {'q', ParmVal::Quit},
+                                                      {'?', ParmVal::Hlp}};
+  
   auto checkTransferMode = [] (char* mode) {
     bool ret;
     if (*mode == 'o' || *mode == 'O') {
@@ -52,8 +70,94 @@ int main(int argc, char* argv[]) {
     }
     return ret;
   };
+  auto parseInOpt = [&port_id, 
+                     &ip_addr,
+                     &local_dir,
+                     &rem_file,
+                     &local_file,
+                     &path,
+                     &buff_size,
+                     &timeout,
+                     &download,
+                     hlp,
+                     &transfer_mode,
+                     &checkTransferMode] (const std::pair<ParmVal, std::string>& opt_pair) {
+    std::from_chars_result char_to_int;
+    int res;
+    char trans_mode;
+    switch (opt_pair.first) {
+      case ParmVal::PortID : char_to_int = std::from_chars(opt_pair.second.data(), opt_pair.second.data() + opt_pair.second.size(), port_id); 
+        if (char_to_int.ec == std::errc::invalid_argument) {
+          std::cout << "Wrong port ID.\n";
+          exit(EXIT_FAILURE);
+        } else if (char_to_int.ec == std::errc::result_out_of_range) {
+          std::cout << "Port ID number is larger than an int.\n";
+          exit(EXIT_FAILURE);
+        }
+        break;
+        case ParmVal::ServerIP : ip_addr = opt_pair.second.data(); break;
+        case ParmVal::LocalDirPath : local_dir = opt_pair.second.data(); break;
+        case ParmVal::UplFileName : rem_file = opt_pair.second.data(); download = false; break;
+        case ParmVal::DownFileName : rem_file = opt_pair.second.data(); download = true; break;
+        case ParmVal::LocalFileName : local_file = opt_pair.second.data(); break;
+        case ParmVal::PackSize : char_to_int = std::from_chars(opt_pair.second.data(), opt_pair.second.data() + opt_pair.second.size(), res); 
+          if (char_to_int.ec == std::errc::invalid_argument) {
+            std::cout << "Packet size parameter isn't a number.\n";
+            exit(EXIT_FAILURE);
+          } else if (char_to_int.ec == std::errc::result_out_of_range) {
+            std::cout << "Packet size is larger than an int.\n";
+            exit(EXIT_FAILURE);
+          }
+          buff_size=res;
+          break;
+        case ParmVal::TimeOut : char_to_int = std::from_chars(opt_pair.second.data(), opt_pair.second.data() + opt_pair.second.size(), res); 
+          if (char_to_int.ec == std::errc::invalid_argument) {
+            std::cout << "Timeout size parameter isn't a number.\n";
+            exit(EXIT_FAILURE);
+          } else if (char_to_int.ec == std::errc::result_out_of_range) {
+            std::cout << "Timeout size number is larger than an int.\n";
+            exit(EXIT_FAILURE);
+          }
+          timeout = res;
+          break;
+        case ParmVal::TransMode : trans_mode = opt_pair.second.front();
+          transfer_mode = checkTransferMode(&trans_mode); 
+          break;
+        case ParmVal::Quit : std::cout<< "Bye!"<< std::endl; exit(EXIT_SUCCESS);
+        case ParmVal::Hlp : std::cout<< hlp<< std::endl; break;
+        default : exit(EXIT_FAILURE);
+    }
+  };
+  auto parseInStr = [&parseInOpt, &in_str_val, &rem_file, &local_file, &download] (std::string& in_str) {
+    //  Clear previous session values
+    std::vector<std::string> string_tokens, str_pair;
+    std::string str_key, str_val;
+    std::vector<std::pair<ParmVal, std::string>> val_vec;
 
-  //  Reading options from CLI
+    rem_file.clear();
+    local_file.clear();
+    download.reset();
+    // Parsing key's
+    
+    std::transform(in_str.begin(), in_str.end(), in_str.begin(), [](unsigned char c){return std::tolower(c);});
+    std::stringstream ss(in_str);
+    std::string str;
+    while (getline(ss, str, '-')) {
+      string_tokens.push_back(str);
+    }
+    string_tokens.erase(std::remove(string_tokens.begin(), string_tokens.end(), ""), string_tokens.end());
+    for (auto pair : string_tokens) {
+      std::stringstream ss(pair);
+      ss>>str_key>>str_val;  
+      char key_str {str_key.front()};
+      std::cout<<str_key<< " "<< str_val<<std::endl<< std::flush;
+      if (in_str_val.contains(key_str)) {
+        auto key {in_str_val.at(key_str)};
+        val_vec.emplace_back(std::make_pair(key, str_val));
+      }
+    }
+    std::ranges::for_each(val_vec, parseInOpt);
+  };
   if (argc > 1) { 
     int opt;
     char* pEnd;
@@ -88,6 +192,10 @@ int main(int argc, char* argv[]) {
     } else {
       std::cout<< "Transmission finished. Transferred -  " << std::get<size_t>(transmission_res);
     }
+  }
+  while (true) {
+    std::cin>> input_line;
+    parseInStr(input_line);
   }
   return 0;
 }

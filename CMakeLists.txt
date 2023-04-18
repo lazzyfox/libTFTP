@@ -5,12 +5,13 @@ option(BUILD_TESTS "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_DOC "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_BINARY "Build the bin file for autotesting when BUILD_BINARY is enabled." OFF)
 
-set(DEFAULT_BUILD_TYPE "Release")
+#set(DEFAULT_BUILD_TYPE "Release")
+set (DEFAULT_BUILD_TYPE "Debug")
 set (CMAKE_CXX_COMPILER_VERSION 11)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_COMPILER ${CXX_COMPILER})
-set(CMAKE_C_COMPILER ${C_COMPILER})
+set (CMAKE_CXX_STANDARD 20)
+set (CMAKE_CXX_STANDARD_REQUIRED ON)
+set (CMAKE_CXX_COMPILER ${CXX_COMPILER})
+set (CMAKE_C_COMPILER ${C_COMPILER})
 
 include(GNUInstallDirs)
 
@@ -32,7 +33,7 @@ target_include_directories(libTFTP INTERFACE
 )
 
 include(CMakePackageConfigHelpers)
-write_basic_package_version_file("clidictConfigVersion.cmake"
+write_basic_package_version_file("tftplibConfigVersion.cmake"
                                  VERSION ${PROJECT_VERSION}
                                  COMPATIBILITY SameMajorVersion)
 configure_package_config_file(
@@ -59,11 +60,7 @@ if (BUILD_TESTS)
   enable_testing()
   find_package(GTest CONFIG REQUIRED)
   add_subdirectory(tests)
-  target_include_directories(tests PRIVATE tests/include)
-  add_test(NAME Test COMMAND libtftp_test)
-  set(CPACK_PROJECT_NAME ${PROJECT_NAME})
-  set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
-  include(CPack)
+  target_include_directories(libtftp_tests PRIVATE tests/include)
 endif (BUILD_TESTS)
 
 

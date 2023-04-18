@@ -86,6 +86,105 @@ TEST(Packet, CharData) {
   }
 }
 
+TEST (FixedSizePacket, RRQ_char){
+  FixedSizePacket<char, 4, OpCode::RRQ> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::RRQ);
+}
+
+TEST (FixedSizePacket, RRQ_byte){
+  FixedSizePacket<std::byte, 4, OpCode::RRQ> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::RRQ);
+}
+
+TEST (FixedSizePacket, WRQ_char){
+  FixedSizePacket<char, 4, OpCode::WRQ> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::WRQ);
+}
+
+TEST (FixedSizePacket, WRQ_byte){
+  FixedSizePacket<std::byte, 4, OpCode::WRQ> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::WRQ);
+}
+
+TEST (FixedSizePacket, DATA_char){
+  FixedSizePacket<char, 4, OpCode::DATA> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::DATA);
+}
+
+TEST (FixedSizePacket, DATA_byte){
+  FixedSizePacket<std::byte, 4, OpCode::DATA> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::DATA);
+}
+
+TEST (FixedSizePacket, ACK_char){
+  FixedSizePacket<char, 4, OpCode::ACK> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::ACK);
+}
+
+TEST (FixedSizePacket, ACK_byte){
+  FixedSizePacket<std::byte, 4, OpCode::ACK> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::ACK);
+}
+
+TEST (FixedSizePacket, ERROR_char){
+  FixedSizePacket<char, 4, OpCode::ERROR> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::ERROR);
+}
+
+TEST (FixedSizePacket, ERROR_byte){
+  FixedSizePacket<std::byte, 4, OpCode::ERROR> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::ERROR);
+}
+
+TEST (FixedSizePacket, OACK_char){
+  FixedSizePacket<char, 4, OpCode::OACK> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::OACK);
+}
+
+TEST (FixedSizePacket, OACK_byte){
+  FixedSizePacket<std::byte, 4, OpCode::OACK> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::OACK);
+}
+
+
+TEST (FixedSizePacket, OERROR_char){
+  FixedSizePacket<char, 4, OpCode::OERROR> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::OERROR);
+}
+
+TEST (FixedSizePacket, OERROR_byte){
+  FixedSizePacket<std::byte, 4, OpCode::OERROR> packet;
+  uint16_t code;
+  memcpy (&code, packet.packet, 2);
+  EXPECT_EQ(code, OpCode::OERROR);
+}
+
 // Client request packet test
 TEST(ReadPacket, ReadRq_old_fashioned) {
   ReadPacket data;
@@ -814,31 +913,25 @@ TEST(DataPacket, CharData) {
 
 // RFC 783-1350 ACK packet
 TEST(ACKPacket, MinVal) {
-  ACKPacket data{ 0 };
-  const uint16_t ex_pack_num{ 0 };
-  const uint16_t ex_op_code{ 4 };
+  uint16_t ex_pack_num{ 0 };
+  ACKPacket data{ex_pack_num};
   uint16_t net_pack_num, net_op_code;
   memcpy(&net_op_code, data.packet, sizeof(uint16_t));
   memcpy(&net_pack_num, &data.packet[2], sizeof(uint16_t));
-  auto op_code{ ntohs(net_op_code) };
-  auto pack_num{ ntohs(net_pack_num) };
-
-  EXPECT_EQ(op_code, ex_op_code);
-  EXPECT_EQ(pack_num, ex_pack_num);
+  
+  EXPECT_EQ(OpCode::ACK, net_op_code);
+  EXPECT_EQ(net_pack_num, ex_pack_num);
 }
 
 TEST(ACKPacket, MaxVal) {
   ACKPacket data{ std::numeric_limits<uint16_t>::max() };
   const uint16_t ex_pack_num{ std::numeric_limits<uint16_t>::max() };
-  const uint16_t ex_op_code{ 4 };
   uint16_t net_pack_num, net_op_code;
   memcpy(&net_op_code, data.packet, sizeof(uint16_t));
   memcpy(&net_pack_num, &data.packet[2], sizeof(uint16_t));
-  auto op_code{ ntohs(net_op_code) };
-  auto pack_num{ ntohs(net_pack_num) };
-
-  EXPECT_EQ(op_code, ex_op_code);
-  EXPECT_EQ(pack_num, ex_pack_num);
+  
+  EXPECT_EQ(OpCode::ACK, net_op_code);
+  EXPECT_EQ(net_pack_num, ex_pack_num);
 }
 
 //  Send data packet tests

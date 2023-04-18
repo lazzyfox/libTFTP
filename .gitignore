@@ -1,6 +1,11 @@
-CMakeLists.txt
 .vscode
-old_CMakeLists.txt
-src/main.cpp
+.git
+.github
+.idea
+log.html
+output.xml
+report.html
+results/
+Testing/
 build/
 tests/build
