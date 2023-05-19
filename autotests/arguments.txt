@@ -1,0 +1,9 @@
+--variable language:ru
+--outputdir ../Results
+--timestampoutput
+--console verbose
+--consolemarkers on
+--loglevel TRACE:INFO
+--tagdoc *:See *README.md*
+--tagstatcombine smokeANDregression
+

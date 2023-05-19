@@ -1856,8 +1856,9 @@ namespace TFTPTools {
       hints.ai_family = AF_UNSPEC;
       hints.ai_socktype = SOCK_DGRAM;
       hints.ai_flags = AI_PASSIVE;
+      const auto ch_port {std::to_string(port).c_str()};
 
-      if (auto rv = getaddrinfo(NULL, std::to_string(port).c_str(), &hints, &servinfo); rv != 0) {
+      if (auto rv = getaddrinfo(NULL, ch_port, &hints, &servinfo); rv != 0) {
         ret =  gai_strerror(rv);
       }
 
@@ -1888,8 +1889,8 @@ namespace TFTPTools {
 
         if (srv_addr.empty()) {
           hints.ai_flags = AI_PASSIVE;
-          string str_port{ std::to_string(port) };
-          status = getaddrinfo(NULL, str_port.c_str(), &hints, &servinfo);
+          const auto str_port{ std::to_string(port).c_str() };
+          status = getaddrinfo(NULL, str_port, &hints, &servinfo);
         }
         else {
           string str_port{ std::to_string(port) };
@@ -1897,7 +1898,6 @@ namespace TFTPTools {
           status = getaddrinfo(str_addr.c_str(), str_port.c_str(), &hints, &servinfo);
         }
         if (status) {
-          ret = gai_strerror(status);
           return ret;
         }
         sock_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
@@ -1965,14 +1965,13 @@ namespace TFTPTools {
     bool waitData(ReadPacket* data = nullptr) noexcept {
       bool ret{ true };
       int valread;
-
       if (!data) {
         return false;
       }
-
       data->clear();
       valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, MSG_WAITALL, (struct sockaddr*)&cliaddr, &cli_addr_size);
       if (valread == SOCKET_ERR) {
+        std::cout<<"Error"<<getERRNO();
         return false;
       }
       ret = data->makeFrameStruct(valread);
@@ -2012,6 +2011,20 @@ namespace TFTPTools {
     uint8_t max_time_out{255};
     uint16_t max_buff_size{65464};
 
+    [[nodiscard]]string getPortID(void) const noexcept {
+      return std::to_string(port);
+    }
+    [[nodiscard]]string getIPAddr(void) const noexcept {
+      string addr {srv_addr};
+      return addr;
+    }
+    [[nodiscard]]string getIPVer(void) const noexcept {
+      string ver {"V4"};
+      if (ip_ver == AF_INET6) {
+        ver =  "V6";
+      }
+      return ver;
+    }
   };
 
   //  Data transfer session manager (socket, file to disk IO)
@@ -3532,6 +3545,13 @@ namespace TFTPSrvLib {
           std::string msg{ "Starting server" };
           msg += TFTPShortNames::lib_hello;
           msg += TFTPShortNames::lib_ver;
+          log->infoMsg(__PRETTY_FUNCTION__, msg);
+          msg.clear();
+          std::string ver {"V4"};
+          if (ip_ver == AF_INET6) {
+            ver = "V6";
+          }
+          msg = "Starting with : IP version - " + getIPVer() + ", IP Address - " + getIPAddr() + ", port number - " + getPortID() + ", working directory - " + base_dir.string(); 
           log->infoMsg(__PRETTY_FUNCTION__, msg);
         }
         auto res = init();

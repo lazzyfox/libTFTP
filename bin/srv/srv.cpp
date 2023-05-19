@@ -17,10 +17,11 @@ Command line parameters :
 constexpr std::string_view hlp {"Possible values for command line : \n -p port number,\n -v IP version (4 or 6),\n -a server IP address to bind a service for,\n -m core multiplication number,\n -d server working directory,\n -l path to log file"};
 
 
+
 int main(int argc, char *argv[]) {
-  int port_id {5001};
+  int port_id {8099};
   int ip_ver {AF_INET};
-  std::string_view ip_addr {"192.168.1.3"};
+  std::string_view ip_addr {"192.168.1.5"};
   size_t thr_mult {1};
   auto log_file = std::make_shared<TFTPTools::Log>("/home/fox/tmp/tftp_dir/srv/tftp_log.txt", true, true, true);
   std::filesystem::path work_dir{"/home/fox/tmp/tftp_dir/srv"};
@@ -56,7 +57,8 @@ int main(int argc, char *argv[]) {
   }
   TFTPSrv srv{std::move(work_dir), std::move(ip_ver), std::move(ip_addr), std::move(port_id), std::move(thr_mult), log_file};
   auto stat = srv.srvStart();
-  // TFTPSrv srv{"/home/fox/tmp/tftp_dir/srv", 1, SERVICE_PORT, log_file};
-  // auto stat = srv.srvStart();
+  if (!stat) {
+    return 1;
+  }
   return 0;
 }

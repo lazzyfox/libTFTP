@@ -1,1 +1,0 @@
-from ROBOTFTPTestLib.TFTPTestLib import TFTPTransport

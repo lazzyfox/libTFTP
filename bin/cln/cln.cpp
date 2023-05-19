@@ -79,7 +79,6 @@ int main(int argc, char* argv[]) {
                      &buff_size,
                      &timeout,
                      &download,
-                     hlp,
                      &transfer_mode,
                      &checkTransferMode] (const std::pair<ParmVal, std::string>& opt_pair) {
     std::from_chars_result char_to_int;
@@ -148,9 +147,7 @@ int main(int argc, char* argv[]) {
     string_tokens.erase(std::remove(string_tokens.begin(), string_tokens.end(), ""), string_tokens.end());
     for (auto pair : string_tokens) {
       std::stringstream ss(pair);
-      ss>>str_key>>str_val;  
       char key_str {str_key.front()};
-      std::cout<<str_key<< " "<< str_val<<std::endl<< std::flush;
       if (in_str_val.contains(key_str)) {
         auto key {in_str_val.at(key_str)};
         val_vec.emplace_back(std::make_pair(key, str_val));
@@ -196,6 +193,19 @@ int main(int argc, char* argv[]) {
   while (true) {
     std::cin>> input_line;
     parseInStr(input_line);
+    //  Starting transmission
+    if (download.has_value()) {
+      if (download.value()) {
+        transmission_res = cln->downLoad(ip_addr, port_id, rem_file, path, buff_size, timeout, transfer_mode, false);
+      } else {
+        transmission_res = cln->upLoad(ip_addr, port_id, rem_file, path, buff_size, timeout, transfer_mode);
+      }
+      if (auto transmission_err {std::get_if<std::string_view>(&transmission_res)}; transmission_err) {
+        std::cout<< "Transmission error - "<<*transmission_err;
+      } else {
+        std::cout<< "Transmission finished. Transferred -  " << std::get<size_t>(transmission_res);
+      }
+    } 
   }
   return 0;
 }
