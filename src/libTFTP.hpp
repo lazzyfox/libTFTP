@@ -246,7 +246,7 @@ namespace TFTPShortNames {
   using std::remove_const;
   template<std::size_t... Ints> using index_sequence = std::integer_sequence<std::size_t, Ints...>;
 
-  constexpr string_view lib_ver{ "0.0.5" };
+  constexpr string_view lib_ver{ "0.0.6" };
   constexpr string_view lib_hello{ "TFTP srv library ver - " };
 
   constexpr uint8_t DEFAULT_PORT{ 69 };
@@ -1268,74 +1268,75 @@ namespace TFTPTools {
   using namespace TFTPDataType;
   //  IO buffer
   template <size_t buff_size> class IO_BUFFER {
-  public:
-    IO_BUFFER() { clear(); }
-    IO_BUFFER(const IO_BUFFER&) = delete;
-    IO_BUFFER(const IO_BUFFER&&) = delete;
-    IO_BUFFER& operator = (IO_BUFFER&) = delete;
+    public:
+      IO_BUFFER() { clear(); }
+      IO_BUFFER(const IO_BUFFER&) = delete;
+      IO_BUFFER(const IO_BUFFER&&) = delete;
+      IO_BUFFER& operator = (IO_BUFFER&) = delete;
 
-    void clear(void) noexcept {
-      curr_size = 0;
-      memset(buffer, '\0', size);
-    }
+      void clear(void) noexcept {
+        curr_size = 0;
+        memset(buffer, '\0', size);
+      }
 
-    bool add(const char* const new_io) noexcept {
-      bool ret{ false };
-      if (strlen(new_io) + curr_size > size) {
+      bool add(const char* const new_io) noexcept {
+        bool ret{ false };
+        if (strlen(new_io) + curr_size > size) {
+          return ret;
+        }
+        else {
+          size_t io_size{ strlen(new_io) };
+          memmove(buffer, new_io, io_size);
+          curr_size += io_size;
+        }
         return ret;
       }
-      else {
-        size_t io_size{ strlen(new_io) };
-        memmove(buffer, new_io, io_size);
-        curr_size += io_size;
-      }
-      return ret;
-    }
 
-  private:
-    const size_t size{ buff_size };
-    size_t curr_size;
-    char buffer[buff_size];
+    private:
+      const size_t size{ buff_size };
+      size_t curr_size;
+      char buffer[buff_size];
   };
 
   //  Storage for TFTP sessions threads or cash buffers
   template <typename PoolType, template <typename> typename PoolCont>
   class ShareResPool {
     public:
-      explicit ShareResPool(size_t pull_size) : pool_max_size{ pull_size } {thr_pool = make_unique<PoolCont<PoolType>>();}
+      explicit ShareResPool(const size_t& pull_size) : pool_max_size{ pull_size } {thr_pool = make_unique<PoolCont<PoolType>>();}
+      explicit ShareResPool(const size_t&& pull_size) : pool_max_size{ pull_size } {thr_pool = make_unique<PoolCont<PoolType>>();}
       ~ShareResPool() = default;
 
-    ShareResPool (ShareResPool&) = delete;
-    ShareResPool (ShareResPool&&) = delete;
-    ShareResPool& operator = (ShareResPool&) = delete;
-    ShareResPool& operator = (ShareResPool&&) = delete;
+      ShareResPool (ShareResPool&) = delete;
+      ShareResPool (ShareResPool&&) = delete;
+      ShareResPool& operator = (ShareResPool&) = delete;
+      ShareResPool& operator = (ShareResPool&&) = delete;
 
-    [[nodiscard]] PoolType getRes(void) noexcept {
-      PoolType ret {nullptr}; 
-      lock_guard<std::mutex> pool_lock(pool_access);
-      if (!thr_pool->size()) {
+      [[nodiscard]] PoolType getRes(void) noexcept {
+        PoolType ret {nullptr}; 
+        lock_guard<std::mutex> pool_lock(pool_access);
+        if (!thr_pool->size()) {
+          return ret;
+        }
+        ret = thr_pool->front();
+        thr_pool->pop_front();
         return ret;
       }
-      ret = thr_pool->front();
-      thr_pool->pop_front();
-      return ret;
-    }
-    [[nodiscard]] bool setRes(PoolType thr) noexcept {
-      bool ret{ false };
-      lock_guard<std::mutex> pool_lock(pool_access);
-      if (thr_pool->size() >= pool_max_size) {
+      [[nodiscard]] bool setRes(PoolType thr) noexcept {
+        bool ret{ false };
+        lock_guard<std::mutex> pool_lock(pool_access);
+        if (thr_pool->size() >= pool_max_size) {
+          return ret;
+        }
+        thr_pool->emplace_back(thr);
+        return true;
+      }
+      [[nodiscard]] bool poolAvailable(void) const noexcept {
+        bool ret{ false };
+        if (thr_pool->size()) {
+          ret = true;
+        }
         return ret;
       }
-      thr_pool->emplace_back(thr);
-      return true;
-    }
-    [[nodiscard]] bool poolAvailable(void) const noexcept {
-      bool ret{ false };
-      if (thr_pool->size()) {
-        ret = true;
-      }
-      return ret;
-    }
     protected:
       unique_ptr<PoolCont<PoolType>> thr_pool;
     private:
@@ -3172,41 +3173,41 @@ namespace TFTPSrvLib {
         ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()),
         ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
         base_dir{ std::move(path) } {}
-      TFTPSrv(const std::string_view& path, const uint8_t core_mult)
+      TFTPSrv(const std::string_view& path, const int16_t core_mult)
       : SrvNet{}, 
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult), 
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads {std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)), 
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path } {}
-      TFTPSrv(const std::string_view&& path, const uint8_t core_mult)
+      TFTPSrv(const std::string_view&& path, const int16_t core_mult)
       : SrvNet{}, 
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult), 
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads {std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)), 
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult)
+      TFTPSrv(const std::filesystem::path&& path, const int16_t core_mult)
       : SrvNet{}, 
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult), 
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads {std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)), 
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(const std::string_view& path, const uint8_t core_mult, const size_t port_number)
+      TFTPSrv(const std::string_view& path, const int16_t core_mult, const size_t port_number)
       : SrvNet{ port_number }, 
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads {std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path } {}
-      TFTPSrv(const std::string_view&& path, const uint8_t core_mult, const size_t port_number)
+      TFTPSrv(const std::string_view&& path, const int16_t core_mult, const size_t port_number)
       : SrvNet{ port_number }, 
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads {std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult, const size_t port_number)
+      TFTPSrv(const std::filesystem::path&& path, const int16_t core_mult, const size_t port_number)
       : SrvNet{ port_number }, 
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads {std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
       TFTPSrv(const std::string_view& path, std::shared_ptr<TFTPTools::Log> log) 
       : TFTPSrv(path) { this->log = log; }
@@ -3214,17 +3215,17 @@ namespace TFTPSrvLib {
       : TFTPSrv(path) { this->log = log; }
       TFTPSrv(const std::filesystem::path&& path, std::shared_ptr<TFTPTools::Log> log) 
       : TFTPSrv(std::move(path)) { this->log = log; }
-      TFTPSrv(const std::string_view& path, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
+      TFTPSrv(const std::string_view& path, const int16_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
       : TFTPSrv(path, core_mult) { this->log = log; }
-      TFTPSrv(const std::string_view&& path, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
+      TFTPSrv(const std::string_view&& path, const int16_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
       : TFTPSrv(path, core_mult) { this->log = log; }
-      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
+      TFTPSrv(const std::filesystem::path&& path, const int16_t core_mult, std::shared_ptr<TFTPTools::Log> log) 
       : TFTPSrv(std::move(path), core_mult) { this->log = log; }
-      TFTPSrv(const std::string_view& path, const uint8_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(const std::string_view& path, const int16_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
       : TFTPSrv(path, core_mult, port_number) {this->log = log;}
-      TFTPSrv(const std::string_view&& path, const uint8_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(const std::string_view&& path, const int16_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
       : TFTPSrv(path, core_mult, port_number) {this->log = log;}
-      TFTPSrv(const std::filesystem::path&& path, const uint8_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(const std::filesystem::path&& path, const int16_t core_mult, const size_t port_number, std::shared_ptr<TFTPTools::Log> log)
       : TFTPSrv(std::move(path), core_mult, port_number) {this->log = log;}
       TFTPSrv(std::string_view& path, std::string_view& srv_addr)
       : SrvNet{TFTPShortNames::DEFAULT_PORT, srv_addr},
@@ -3340,82 +3341,82 @@ namespace TFTPSrvLib {
         ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const uint8_t core_mult)
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const int16_t core_mult)
       : SrvNet{TFTPShortNames::DEFAULT_PORT, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path } {}
-      TFTPSrv(std::string_view&& path, std::string_view& srv_addr, const uint8_t core_mult)
+      TFTPSrv(std::string_view&& path, std::string_view& srv_addr, const int16_t core_mult)
       : SrvNet{TFTPShortNames::DEFAULT_PORT, std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::filesystem::path&& path, std::string_view& srv_addr, const uint8_t core_mult)
+      TFTPSrv(std::filesystem::path&& path, std::string_view& srv_addr, const int16_t core_mult)
       : SrvNet{TFTPShortNames::DEFAULT_PORT, std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t port_number, const uint8_t core_mult)
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t port_number, const int16_t core_mult)
       : SrvNet{port_number, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path } {}
-      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t port_number, const uint8_t core_mult)
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t port_number, const int16_t core_mult)
       : SrvNet{std::move(port_number), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult)
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t&& port_number, const int16_t&& core_mult)
       : SrvNet{std::move(port_number), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const uint8_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const int16_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{TFTPShortNames::DEFAULT_PORT, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path },
         log {log} {}
-      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const int16_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const int16_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t&& port_number, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view& path, std::string_view& srv_addr, const size_t&& port_number, const int16_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{port_number, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path },
         log {log} {}
-      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t port_number, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view&& path, std::string_view&& srv_addr, const size_t port_number, const int16_t core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(port_number), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t port_number, const uint8_t core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::filesystem::path&& path, std::string_view&& srv_addr, const size_t port_number, const int16_t core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(port_number), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
       TFTPSrv(std::string_view& path, const int ip_ver, std::string_view& srv_addr, std::shared_ptr<TFTPTools::Log> log)
@@ -3454,82 +3455,82 @@ namespace TFTPSrvLib {
         ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()),
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const uint8_t core_mult)
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const int16_t core_mult)
       : SrvNet{TFTPShortNames::DEFAULT_PORT, ip_ver, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path } {}
-      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult)
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const int16_t&& core_mult)
       : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult)
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const int16_t&& core_mult)
       : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const size_t& port_number, const uint8_t& core_mult)
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const size_t& port_number, const int16_t& core_mult)
       : SrvNet{port_number, ip_ver, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path } {}
-      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult)
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const int16_t&& core_mult)
       : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult)
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const int16_t&& core_mult)
       : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) } {}
-      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const uint8_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const int16_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{TFTPShortNames::DEFAULT_PORT, ip_ver, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path },
         log {log} {}
-      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const int16_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const int16_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(TFTPShortNames::DEFAULT_PORT), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const size_t& port_number, const uint8_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view& path, const int& ip_ver, std::string_view& srv_addr, const size_t& port_number, const int16_t& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{port_number, ip_ver, srv_addr},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ path },
         log {log} {}
-      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::string_view&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const int16_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
-      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const uint8_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
+      TFTPSrv(std::filesystem::path&& path, const int&& ip_ver, std::string_view&& srv_addr, const size_t&& port_number, const int16_t&& core_mult, std::shared_ptr<TFTPTools::Log> log)
       : SrvNet{std::move(port_number), std::move(ip_ver), std::move(srv_addr)},
-        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(std::thread::hardware_concurrency()* core_mult),
-        ShareResPool<TFTPShortNames::TransferState*, std::vector> (std::thread::hardware_concurrency()* core_mult),
-        max_threads{std::thread::hardware_concurrency() * core_mult},
+        ShareResPool<TFTPShortNames::ThrWorker*, std::deque>(thrNumberCount(core_mult)),
+        ShareResPool<TFTPShortNames::TransferState*, std::vector> (thrNumberCount(core_mult)),
+        max_threads{thrNumberCount(core_mult)},
         base_dir{ std::move(path) },
         log {log} {}
 
@@ -3752,7 +3753,7 @@ namespace TFTPSrvLib {
       }
 
     private:
-      size_t max_threads{ 8 };
+      uint16_t max_threads{ 8 };
       const std::filesystem::path base_dir;
       size_t file_size;
       std::atomic<bool> stop_worker{ false }, term_worker{ false }, stop_server{ false };
@@ -3762,8 +3763,19 @@ namespace TFTPSrvLib {
       std::mutex stop_worker_mtx;
       std::shared_ptr<TFTPTools::Log> log;
 
+      //  Calculating number of threads
+      uint16_t thrNumberCount(const int16_t thr_num = 0) noexcept {
+        uint16_t ret {8};
+        //  IF thr_num =  0 just leave default value - 8 threads
+        if (thr_num < 0 ) {
+          ret = abs(thr_num);
+        } else if (thr_num > 0) {
+          ret = std::thread::hardware_concurrency() * thr_num;
+        }
+        return ret;
+      }
       //  Creating transfers workers(threads)
-      bool init(void) {
+      bool init(void) noexcept {
         bool ret{ true };
 
         for (size_t worker_count{ 0 }; worker_count < max_threads; ++worker_count) {
@@ -3788,7 +3800,7 @@ namespace TFTPSrvLib {
       }
       //  Transfer worker - clients IO session
       //  TODO: Add statistic update to base net class methods
-      void worker(void) {
+      void worker(void) noexcept {
         bool ret;
         std::mutex mtx;
         std::condition_variable cv;

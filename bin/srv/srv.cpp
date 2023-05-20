@@ -14,15 +14,14 @@ Command line parameters :
 -? parameters list
 */
 
-constexpr std::string_view hlp {"Possible values for command line : \n -p port number,\n -v IP version (4 or 6),\n -a server IP address to bind a service for,\n -m core multiplication number,\n -d server working directory,\n -l path to log file"};
-
+constexpr std::string_view hlp {"Possible values for command line : \n -p port number,\n -v IP version (4 or 6),\n -a server IP address to bind a service for,\n -m core multiplication number (0 - default value -x : number of treads, positive number is multiplication coefficient),\n -d server working directory,\n -l path to log file"};
 
 
 int main(int argc, char *argv[]) {
   int port_id {8099};
   int ip_ver {AF_INET};
   std::string_view ip_addr {"192.168.1.5"};
-  size_t thr_mult {1};
+  int16_t thr_mult {-1};
   auto log_file = std::make_shared<TFTPTools::Log>("/home/fox/tmp/tftp_dir/srv/tftp_log.txt", true, true, true);
   std::filesystem::path work_dir{"/home/fox/tmp/tftp_dir/srv"};
 
@@ -42,7 +41,7 @@ int main(int argc, char *argv[]) {
   if (argc > 1) { //  Reading options from CLI
     int opt;
     char * pEnd;
-    while ((opt = getopt(argc, argv, "p:v:a:d:l:?")) != -1) {
+    while ((opt = getopt(argc, argv, "p:v:a:d:l:m:?")) != -1) {
       switch (opt) {
         case 'p' : port_id = strtol(optarg, &pEnd, 10); break;
         case 'v' : ip_ver = ver_check(optarg); break;
@@ -55,6 +54,9 @@ int main(int argc, char *argv[]) {
       }
     }
   }
+
+  
+
   TFTPSrv srv{std::move(work_dir), std::move(ip_ver), std::move(ip_addr), std::move(port_id), std::move(thr_mult), log_file};
   auto stat = srv.srvStart();
   if (!stat) {
