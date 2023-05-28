@@ -55,8 +55,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  
-
   TFTPSrv srv{std::move(work_dir), std::move(ip_ver), std::move(ip_addr), std::move(port_id), std::move(thr_mult), log_file};
   auto stat = srv.srvStart();
   if (!stat) {

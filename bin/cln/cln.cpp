@@ -42,7 +42,7 @@ int main(int argc, char* argv[]) {
   std::string input_line;
   std::optional<size_t> buff_size, timeout;
   std::optional<bool> download;
-  bool transfer_mode;
+  bool transfer_mode {false};
   std::unique_ptr<TFTPCln> cln;
   std::variant<size_t, std::string_view> transmission_res;
 
@@ -94,12 +94,12 @@ int main(int argc, char* argv[]) {
           exit(EXIT_FAILURE);
         }
         break;
-        case ParmVal::ServerIP : ip_addr = opt_pair.second.data(); break;
-        case ParmVal::LocalDirPath : local_dir = opt_pair.second.data(); break;
-        case ParmVal::UplFileName : rem_file = opt_pair.second.data(); download = false; break;
-        case ParmVal::DownFileName : rem_file = opt_pair.second.data(); download = true; break;
-        case ParmVal::LocalFileName : local_file = opt_pair.second.data(); break;
-        case ParmVal::PackSize : char_to_int = std::from_chars(opt_pair.second.data(), opt_pair.second.data() + opt_pair.second.size(), res); 
+      case ParmVal::ServerIP : ip_addr = opt_pair.second.data(); break;
+      case ParmVal::LocalDirPath : local_dir = opt_pair.second.data(); break;
+      case ParmVal::UplFileName : rem_file = opt_pair.second.data(); download = false; break;
+      case ParmVal::DownFileName : rem_file = opt_pair.second.data(); download = true; break;
+      case ParmVal::LocalFileName : local_file = opt_pair.second.data(); break;
+      case ParmVal::PackSize : char_to_int = std::from_chars(opt_pair.second.data(), opt_pair.second.data() + opt_pair.second.size(), res); 
           if (char_to_int.ec == std::errc::invalid_argument) {
             std::cout << "Packet size parameter isn't a number.\n";
             exit(EXIT_FAILURE);
@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
           }
           buff_size=res;
           break;
-        case ParmVal::TimeOut : char_to_int = std::from_chars(opt_pair.second.data(), opt_pair.second.data() + opt_pair.second.size(), res); 
+      case ParmVal::TimeOut : char_to_int = std::from_chars(opt_pair.second.data(), opt_pair.second.data() + opt_pair.second.size(), res); 
           if (char_to_int.ec == std::errc::invalid_argument) {
             std::cout << "Timeout size parameter isn't a number.\n";
             exit(EXIT_FAILURE);
@@ -119,12 +119,12 @@ int main(int argc, char* argv[]) {
           }
           timeout = res;
           break;
-        case ParmVal::TransMode : trans_mode = opt_pair.second.front();
+      case ParmVal::TransMode : trans_mode = opt_pair.second.front();
           transfer_mode = checkTransferMode(&trans_mode); 
           break;
-        case ParmVal::Quit : std::cout<< "Bye!"<< std::endl; exit(EXIT_SUCCESS);
-        case ParmVal::Hlp : std::cout<< hlp<< std::endl; break;
-        default : exit(EXIT_FAILURE);
+      case ParmVal::Quit : std::cout<< "Bye!"<< std::endl; exit(EXIT_SUCCESS);
+      case ParmVal::Hlp : std::cout<< hlp<< std::endl; break;
+      default : exit(EXIT_FAILURE);
     }
   };
   auto parseInStr = [&parseInOpt, &in_str_val, &rem_file, &local_file, &download] (std::string& in_str) {

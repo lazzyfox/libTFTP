@@ -208,6 +208,7 @@ namespace TwinMapType {
       std::unique_ptr<std::unordered_map<T2, T1>> t2_key{};
   };
 }
+
 namespace TFTPShortNames {
   namespace ranges = std::ranges;
   namespace fs = std::filesystem;
@@ -595,7 +596,9 @@ namespace TFTPDataType {
       optional<uint16_t>, //  Data end address
       optional<string> //  File name
     > packet_frame_structure;
+    //  RFC 2347 and above parameters set as a vector
     optional<vector<ReqParam>> req_params;
+    //  RFC 2090 multicast options set (if it is a multicast request)
     optional<MulticastOption> multicast;
     FileMode trans_params;
     //  Clear data in struct 
@@ -734,13 +737,24 @@ namespace TFTPDataType {
         vector <ReqParam> options{};
 
         //  Message content end position count
-        while (packet[count_end] != '\0') {
-          ++count_end;
-          if (count_end > pack_size) {
-            return false;
+        if (pack_size == PACKET_MAX_SIZE) {
+          bool double_zero {false};
+          while (true) {
+            if (packet[count_end] == '\0') {
+              if (double_zero) {
+                break;
+              } else {
+                double_zero = true;
+              }
+            } else {
+              double_zero = false;
+            }
+            ++count_end;
+            if (count_end > pack_size) {
+              return false;
+            }
           }
         }
-
         //  Transfer mode check
         count_mode = count_end + 1;
         do {
@@ -769,8 +783,9 @@ namespace TFTPDataType {
 
         //  Check additional options according RFC 1782 and above
         ++count_mode;
-        if (count_mode > pack_size) {
-          return false;
+        // Check if additional options are exist
+        if (count_mode > count_end) {
+          return true;
         }
         while (count_mode < pack_size) {
           transf_mode.clear();
@@ -906,16 +921,16 @@ namespace TFTPDataType {
       if (!ret) {
         return ret;
       }
-      try {
+      if (req_data.contains(opcode)) {
         auto dataLayOut{ req_data.at(opcode) };
         ret = dataLayOut(opcode);
-      } catch (...) {
+      } else {
         ret = false;
       }
       return ret;
     }
     //  Get parameters for new clients request transfer session
-    [[nodiscard]] bool getParams(struct sockaddr_storage addr_stor, optional<size_t> io_port) noexcept {
+    [[nodiscard]] bool getParams(struct sockaddr_storage& addr_stor, optional<size_t> io_port = 0) noexcept {
       bool ret {true};
       fs::path path;
       bool read_file{false}, bin_operation {false};
@@ -1071,7 +1086,7 @@ namespace TFTPDataType {
     }
     ~DataPacket() = default;
   };
-  // RFC 783-1350  request acknowledgement packet 
+  // RFC 783-1350  request & received packet acknowledgment replay
   struct ACKPacket final : FixedSizePacket <char, PACKET_ACK_SIZE, OpCode::ACK> {
     ACKPacket() : FixedSizePacket <char, PACKET_ACK_SIZE, OpCode::ACK>() {}
     ACKPacket(const uint16_t& pack_number) : FixedSizePacket <char, PACKET_ACK_SIZE, OpCode::ACK>() {setNumber(pack_number);};
@@ -1105,7 +1120,7 @@ namespace TFTPDataType {
     }
   };
 
-  template <size_t err_size> struct ConstErrorPacket final : BasePacket <err_size, char> {
+  template <size_t err_size> struct ConstErrorPacket final : BasePacket <err_size + 4, char> {
     const unordered_map<TFTPError, uint16_t> CodeConv{ {TFTPError::Not_defined, 0},
                                                        {TFTPError::File_not_found, 1},
                                                        {TFTPError::Access_Violation, 2},
@@ -1113,14 +1128,21 @@ namespace TFTPDataType {
                                                        {TFTPError::Illegal_TFTP_operation, 4},
                                                        {TFTPError::Unknown_port_number, 5},
                                                        {TFTPError::File_exists, 6},
-                                                       {TFTPError::No_such_user, 7} };
+                                                       {TFTPError::No_such_user, 7},
+                                                       {TFTPError::Options_are_not_supported, 8} };
     ConstErrorPacket(const TFTPError code, char* msg) {
+      //constexpr uint16_t op_code{ 5 };
       constexpr uint16_t op_code{ 5 };
-      const ushort err_code{ CodeConv.at(code) };
-      BasePacket<err_size, char>::clear();
-      memcpy(&BasePacket<err_size, char>::packet[1], &op_code, sizeof(op_code));
-      memmove(&BasePacket<err_size, char>::packet[3], &err_code, sizeof(err_code));
-      memmove(&BasePacket<err_size, char>::packet[4], msg, strlen(msg));
+      uint16_t err_code;
+      if (CodeConv.contains(code)) {
+        err_code = CodeConv.at(code);
+      } else {
+        err_code = CodeConv.at(TFTPError::Not_defined);
+      }
+      BasePacket<err_size + 4, char>::clear();
+      memcpy(&BasePacket<err_size + 4, char>::packet[1], &op_code, sizeof(op_code));
+      memmove(&BasePacket<err_size + 4, char>::packet[3], &err_code, sizeof(err_code));
+      memmove(&BasePacket<err_size + 4, char>::packet[4], msg, strlen(msg));
     }
   };
   //  RFC 2347 and above parameters negotiation request support packet
@@ -1187,6 +1209,7 @@ namespace TFTPDataType {
     }
   };
 }
+
 namespace TFTPClnDataType {
   using namespace TFTPShortNames;
   using namespace TFTPDataType;
@@ -1676,7 +1699,7 @@ namespace TFTPTools {
       : buff_size{ buff_size }, timeout{ timeout }, file_size{ file_size }, port{ port },  cliaddr{cln_addr} {
       try {
         if (!init(port)) {
-          std::cerr << "Socket init problem" << std::endl;
+          service_ini_stat = "Socket init problem";
         }
 
         //  Buffer size setup
@@ -1823,11 +1846,11 @@ namespace TFTPTools {
     }
   protected:
     //  Socket params
-    size_t port;
-    int sock_id {0}; 
+    size_t port {9779};
+    int sock_id {-1}; 
     struct sockaddr_in address;
     int opt {1};
-    struct sockaddr_storage cliaddr;  //  Client connection address 
+    struct sockaddr_storage cliaddr;  //  Client connection information - address 
     int addrlen {sizeof(address)};
     socklen_t  cli_addr_size;
     string multicast_address;
@@ -1835,19 +1858,54 @@ namespace TFTPTools {
     struct in_addr local_int;
     const int ip_ver {AF_INET};
     const string_view srv_addr;
-
+    
+    //  Socket creation error
     string getERRNO(void) {
       string err_str;
       switch (errno) {
-      case EBADF: err_str = "The argument sock_id is an invalid descriptor"; break;
-      case EFAULT: err_str = "The receive buffer pointer(s) point outside the process's address space"; break;
-      case EINTR: err_str = "The receive was interrupted by delivery of a signal before any data were available"; break;
-      case EINVAL: err_str = "Invalid argument passed"; break;
-      case ENOMEM: err_str = "Could not allocate memory for recvmsg()"; break;
-      case ENOTSOCK: err_str = "The argument sock_id does not refer to a socket"; break;
-      default: err_str = "Error not in socket errors list";
+        case EBADF: err_str = "The argument sock_id is an invalid descriptor"; break;
+        case EFAULT: err_str = "The receive buffer pointer(s) point outside the process's address space"; break;
+        case EINTR: err_str = "The receive was interrupted by delivery of a signal before any data were available"; break;
+        case EINVAL: err_str = "Invalid argument passed"; break;
+        case ENOMEM: err_str = "Could not allocate memory for recvmsg()"; break;
+        case ENOTSOCK: err_str = "The argument sock_id does not refer to a socket"; break;
+        default: err_str = "Error not in socket errors list";
       }
       return err_str;
+    }
+    // get sockaddr, IPv4 or IPv6:
+    [[nodiscard]] variant<struct in_addr, struct in6_addr> get_in_addr(struct sockaddr *sa) const noexcept{
+      variant<struct in_addr, struct in6_addr> ret;
+      if (sa->sa_family == AF_INET) {
+        ret = ((struct sockaddr_in*)sa)->sin_addr;
+      } else {
+        ret = ((struct sockaddr_in6*)sa)->sin6_addr;
+      }
+      return ret;
+    }
+    //  Convert address to human understandable format
+    [[nodiscard]] pair<bool, string> ipStrFormat(variant<struct in_addr, struct in6_addr>& addr_struct) const noexcept {
+      pair <bool, string> ret;
+      string str_ip_addr;
+      const char* res;
+      
+      if (const auto addr_V4{std::get_if<struct in_addr>(&addr_struct)}) {
+        char str[INET_ADDRSTRLEN];
+        res = inet_ntop(AF_INET, &addr_V4, str, INET_ADDRSTRLEN);
+        str_ip_addr = str;
+      } else if (const auto addr_V6{std::get_if<struct in6_addr>(&addr_struct)}) {
+        char str[INET6_ADDRSTRLEN];
+        res = inet_ntop(AF_INET6, &addr_V6, str, INET6_ADDRSTRLEN);
+        str_ip_addr = str;
+      }
+      if (!res) {
+        ret.first = false;
+        ret.second  = strerror(errno);
+      } else {
+        ret.first = true;
+        ret.second = str_ip_addr;
+      }
+      return ret;
     }
   private:
     [[nodiscard]] optional<string_view> init(const size_t port = DEFAULT_PORT) noexcept {
@@ -1866,7 +1924,7 @@ namespace TFTPTools {
       // Looking for suitable interface
       for (auto addr_p = servinfo; addr_p != NULL; addr_p = addr_p->ai_next) {
         sock_id = socket(addr_p->ai_family, addr_p->ai_socktype, addr_p->ai_protocol);
-        if (sock_id == -1) {
+        if (sock_id == SOCKET_ERR) {
           continue;
         }
         if (bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen) == -1) {
@@ -1883,30 +1941,50 @@ namespace TFTPTools {
         optional<string_view> ret;
         struct addrinfo hints;
         struct addrinfo* servinfo = nullptr;
-
+        //  Socket parameters settings
         memset(&hints, 0, sizeof hints);
         hints.ai_family = ip_ver;
         hints.ai_socktype = SOCK_DGRAM;
+        if (!srv_addr.empty()) {
+        }
 
         if (srv_addr.empty()) {
           hints.ai_flags = AI_PASSIVE;
           const auto str_port{ std::to_string(port).c_str() };
           status = getaddrinfo(NULL, str_port, &hints, &servinfo);
-        }
-        else {
+        } else {
           string str_port{ std::to_string(port) };
           string str_addr{ srv_addr };
-          status = getaddrinfo(str_addr.c_str(), str_port.c_str(), &hints, &servinfo);
+          auto s_addr {str_addr.c_str()};
+          auto s_port {str_port.c_str()};
+          status = getaddrinfo(s_addr, s_port, &hints, &servinfo);
         }
         if (status) {
           return ret;
         }
-        sock_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+        //  Assign socket
+        for (auto addr_p = servinfo; addr_p != NULL; addr_p = addr_p->ai_next) {
+          if (addr_p->ai_family == ip_ver && addr_p->ai_socktype == SOCK_DGRAM) {
+            if (!srv_addr.empty()) {
+              sock_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+            } else {
+              sock_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+            }
+            if (sock_id == -1) {
+              ret = "Socket create error";
+              return ret;
+            }
+          } 
+        }
+        //  Right combination for socket not found
         if (sock_id == -1) {
           ret = "Socket create error";
           return ret;
         }
-        
+        //  Binding socket to port
+        if (const auto sock_bind {bind(sock_id, servinfo->ai_addr, servinfo->ai_addrlen)}; sock_bind == SOCKET_ERR) {
+          ret = "Socket binding error";
+        }
         freeaddrinfo(servinfo); // free the linked-list
         return ret;
       }
@@ -1961,7 +2039,11 @@ namespace TFTPTools {
     SrvNet(const SrvNet&&) = delete;
     SrvNet& operator = (const SrvNet&) = delete;
     SrvNet& operator = (const SrvNet&&) = delete;
-
+    
+    //  Get error message
+    optional<string_view> getInitStatus (void) const noexcept {
+      return service_ini_stat;
+    }
     //  Open socket and waiting for clients connections
     bool waitData(ReadPacket* data = nullptr) noexcept {
       bool ret{ true };
@@ -1970,9 +2052,8 @@ namespace TFTPTools {
         return false;
       }
       data->clear();
-      valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, MSG_WAITALL, (struct sockaddr*)&cliaddr, &cli_addr_size);
+      valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, /*MSG_WAITALL*/0, (struct sockaddr*)&cliaddr, &cli_addr_size);
       if (valread == SOCKET_ERR) {
-        std::cout<<"Error"<<getERRNO();
         return false;
       }
       ret = data->makeFrameStruct(valread);
@@ -3955,7 +4036,8 @@ namespace TFTPSrvLib {
         if (log) {
           log->infoMsg("Main thread", "Session manager started");
         }
-
+        
+        //  Processing clients requests
         while (!stop_worker.load() && !term_worker.load()) {
           data.clear();
           if (fl_size) {
@@ -3966,12 +4048,6 @@ namespace TFTPSrvLib {
             continue;
           }
           //  Request analysis, and making data format, convenient for working
-          valread = data.makeFrameStruct();
-          if (!valread) {
-            TFTPDataType::ConstErrorPacket<TFTPShortNames::BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::BAD_FRAME_FORMAT_ERR);
-            sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-            continue;
-          }
           valread = data.getParams(cliaddr, 0);
           if (!valread) {
             TFTPDataType::ConstErrorPacket<TFTPShortNames::BAD_FRAME_FORMAT_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::BAD_FRAME_FORMAT_ERR);
@@ -3981,13 +4057,13 @@ namespace TFTPSrvLib {
 
           request_code = std::get<0>(data.packet_frame_structure);
 
-          if(request_code != TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ || request_code != TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE) {
+          if((request_code != TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ) && (request_code != TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE)) {
             TFTPDataType::ConstErrorPacket<TFTPShortNames::WRONG_REQUEST_ERR_SIZE> error(TFTPShortNames::TFTPError::Options_are_not_supported, (char*)&TFTPShortNames::WRONG_REQUEST_ERR);
             sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
             continue;
           }
           
-          //  Read request processing
+          //  For Read request - check if requested file exists
           if (request_code == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ) {
 
             //  Check if file exists and accessible
@@ -4093,7 +4169,7 @@ namespace TFTPClnLib {
         socklen_t addr_len;
         std::variant<bool, std::string> wr_res;
 
-        struct addrinfo *srv_conn_data;
+        struct addrinfo *srv_conn_data{nullptr};
         struct timeval tv;
         tv.tv_sec = 0;
 
@@ -4650,10 +4726,15 @@ namespace TFTPClnLib {
         return trans_stat_byte;
       }
       [[nodiscard]] size_t getDataPcn(void) const noexcept {
-        //return trans_stat_pcn;
+        uint8_t trans_stat_pcn {0};
+        if (file_size && trans_stat_byte) {
+          trans_stat_pcn = std::ceil((trans_stat_byte/file_size)*100);
+        }
+        return trans_stat_pcn;
       }
     private :
       size_t trans_stat_byte{0};  //  Bytes transmitted
+      size_t file_size{0};  //  Transmitting file size
       struct addrinfo* connectSrv(const std::string& srv_name, const size_t& port) {
         struct addrinfo hints;
         struct addrinfo *servinfo = nullptr;  
