@@ -1,3 +1,6 @@
+#ifndef __LIBTFTP_H__
+#define __LIBTFTP_H__
+
 #ifndef TFTPLIB_HPP 
 #define TFTPLIB_HPP
 
@@ -284,12 +287,15 @@ namespace TFTPShortNames {
   constexpr uint8_t ERROR_MIN_SIZE{ 6 };
   constexpr uint8_t OACK_MIN_SIZE{ 6 };
 
+  //  TFTP Errors 
   constexpr char FILE_OPENEN_ERR[]{ "Can't open file\0" };
   constexpr size_t FILE_OPENEN_ERR_SIZE{ 22 };
   constexpr char FILE_READ_ERR[]{ "Can't read file\0" };
   constexpr size_t FILE_READ_ERR_SIZE{ 22 };
   constexpr char DATA_REORDER_ERR[]{ "Wrong packets number received\0" };
   constexpr size_t DATA_REORDER_ERR_SIZE{ 30 };
+  constexpr char DISK_FULL[] {"Disk full or Quota exceeded\0"};
+  constexpr size_t DISK_FULL_SIZE {28};
   constexpr char FILE_EXISTS_ERR[]{ "File already exists\0" };
   constexpr size_t FILE_EXISTS_ERR_SIZE{ 25 };
   constexpr char MAX_PACK_NUMBER_ERR[]{ "Packet number exceeds\0" };
@@ -360,7 +366,7 @@ namespace TFTPShortNames {
     time_point<system_clock>*,  //  Request time
     atomic<bool>* //  Statistics data update request
   >;
-  enum class TFTPMode : uint8_t { netascii = 1, octet = 2, mail = 3 };
+  enum class TFTPMode : uint16_t { netascii = 1, octet = 2, mail = 3 };
   enum class TFTPOpeCode : uint16_t {
     TFTP_OPCODE_READ = 1,
     TFTP_OPCODE_WRITE = 2,
@@ -370,7 +376,7 @@ namespace TFTPShortNames {
     TFTP_OPCODE_OACK = 6
   };
 
-  enum class TFTPError : uint8_t {
+  enum class TFTPError : uint16_t {
     Not_defined,
     File_not_found,
     Access_Violation,
@@ -383,7 +389,7 @@ namespace TFTPShortNames {
   };
 
   enum class LogSeverity : uint8_t { Error, Warning, Information, Debug };
-  constexpr string_view hello{ "Hello from TFTP server V 0.1" };
+  constexpr string_view hello{ "Hello from TFTP server V 0.1.6" };
 
   using PacketContent = tuple<TFTPOpeCode, optional<TFTPError>, optional<string_view>, optional<TFTPMode>, optional<uint16_t>>;
   using ReqParam = pair<OptExtent, uint16_t>;
@@ -4065,7 +4071,6 @@ namespace TFTPSrvLib {
           
           //  For Read request - check if requested file exists
           if (request_code == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ) {
-
             //  Check if file exists and accessible
             requested_file = base_dir / std::get<6>(data.packet_frame_structure).value();
             std::ifstream r_file{ requested_file };
@@ -4104,6 +4109,16 @@ namespace TFTPSrvLib {
           std::get<7>(*worker_set) = std::get<7>(data.trans_params).value();
           std::get<8>(*worker_set) = std::get<8>(data.trans_params).value();
           std::get<9>(*worker_set) = std::get<9>(data.trans_params);
+          //  For write request - check free space available on disk
+          if (request_code == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE) {
+            std::error_code er;
+            auto fs_available {std::filesystem::space(base_dir ,er)};
+            if (fs_available.available < std::get<6>(*worker_set)) {
+              TFTPDataType::ConstErrorPacket<TFTPShortNames::DISK_FULL_SIZE> error(TFTPShortNames::TFTPError::Disk_full_or_Quota_exceeded, (char*)&TFTPShortNames::DISK_FULL);
+              sendto(sock_id, &error.packet, error.size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+              continue;
+            }
+          }
           //  Start new transfer in worker
           std::get<std::condition_variable*>(current_worker)->notify_one();
         }
@@ -4781,3 +4796,5 @@ namespace TFTPClnLib {
   };
 }
 #endif // LIBTFTP_HPP
+
+#endif // __LIBTFTP_H__
