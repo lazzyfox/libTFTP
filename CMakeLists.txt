@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.9)
-project(libTFTP VERSION 0.0.7 DESCRIPTION "TFTP server library")
+project(libTFTP VERSION 0.0.8 DESCRIPTION "TFTP server library")
 
 option(BUILD_TESTS "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_DOC "Build the unit tests when BUILD_TESTING is enabled." OFF)
@@ -8,12 +8,14 @@ option(BUILD_BINARY "Build the bin file for autotesting when BUILD_BINARY is ena
 #set(DEFAULT_BUILD_TYPE "Release")
 set (DEFAULT_BUILD_TYPE "Debug")
 set (CMAKE_CXX_COMPILER_VERSION 12)
-set (CMAKE_CXX_STANDARD 20)
+set (CMAKE_CXX_STANDARD 23)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
 set (CMAKE_CXX_COMPILER ${CXX_COMPILER})
 set (CMAKE_C_COMPILER ${C_COMPILER})
 set(CMAKE_C_FLAGS_DEBUG "-g3 -DDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-g3 -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-std=gnu++2b")
+
 
 include(GNUInstallDirs)
 

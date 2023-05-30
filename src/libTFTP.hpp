@@ -1,6 +1,3 @@
-#ifndef __LIBTFTP_H__
-#define __LIBTFTP_H__
-
 #ifndef TFTPLIB_HPP 
 #define TFTPLIB_HPP
 
@@ -79,6 +76,7 @@ SOFTWARE.
 #include <ios>
 #include <regex>
 #include <cmath>
+#include <expected>
 
 
 #include <stdio.h>
@@ -4796,5 +4794,3 @@ namespace TFTPClnLib {
   };
 }
 #endif // LIBTFTP_HPP
-
-#endif // __LIBTFTP_H__
