@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.2)
-project(tftp_srv VERSION 0.0.1 DESCRIPTION "TFTP server test application build")
-set(CMAKE_CXX_FLAGS "-O2 -pipe -std=c++2a -pthread -std=gnu++2a -Wall -Wextra -fPIC")
+project(tftp_srv VERSION 0.0.2 DESCRIPTION "TFTP server test application build")
+set(CMAKE_CXX_STANDARD 23)
+set (CMAKE_CXX_COMPILER_VERSION 13)
+set(CMAKE_C_COMPILER ${C_COMPILER})
+set (CMAKE_CXX_COMPILER ${CXX_COMPILER})
+set(CMAKE_CXX_FLAGS "-ggdb -pipe -std=c++2b -pthread -std=gnu++2b -Wall -Wextra -fPIC")
 add_executable(tftp_srv ${PROJECT_SOURCE_DIR}/srv.cpp ${PROJECT_SOURCE_DIR}/../../src/libTFTP.hpp)
 target_link_libraries(tftp_srv -lgcc -lstdc++ -ldl -lpthread)
 

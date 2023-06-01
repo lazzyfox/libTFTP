@@ -1,10 +1,12 @@
 cmake_minimum_required(VERSION 3.0.0)
-project(libtftp_tests VERSION 0.0.2)
-set(CMAKE_CXX_STANDARD 20)
-set (CMAKE_CXX_COMPILER_VERSION 12)
-set(CMAKE_CXX_COMPILER "/usr/bin/g++-12")
+project(libtftp_tests VERSION 0.0.3)
+set(CMAKE_CXX_STANDARD 23)
+set (CMAKE_CXX_COMPILER_VERSION 13)
 set(CMAKE_C_COMPILER ${C_COMPILER})
-set(CMAKE_CXX_FLAGS "-std=c++20 -Wall -Wextra -fPIC")
+set (CMAKE_CXX_COMPILER ${CXX_COMPILER})
+#set(CMAKE_CXX_COMPILER "/usr/bin/gcc-13")
+#set(CMAKE_C_COMPILER ${C_COMPILER})
+set(CMAKE_CXX_FLAGS "-ggdb -std=c++2b -Wall -Wextra -fPIC")
 # Find additional packages
 find_package(GTest CONFIG REQUIRED)
 # Creating tests

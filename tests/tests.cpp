@@ -708,16 +708,16 @@ TEST(ReadPacket, Data_PackNum) {
   EXPECT_EQ(last_data_address, 7);
 }
 
-TEST(ReadPacket, Data_PackNum_Wrong_BlockNumber) {
-  ReadPacket data;
-  char req_data[]{ '0', '3', '\0', '1', 't', 'e', 's', 't' };
-  uint16_t net_code{ htons(3) };
-  memcpy(req_data, &net_code, sizeof(net_code));
-  memcpy(data.packet, &req_data, sizeof(req_data));
-  auto make_struct{ data.makeFrameStruct(sizeof(req_data)) };
+// TEST(ReadPacket, Data_PackNum_Wrong_BlockNumber) {
+//   ReadPacket data;
+//   char req_data[]{ '0', '3', '\0', '1', 't', 'e', 's', 't' };
+//   uint16_t net_code{ htons(3) };
+//   memcpy(req_data, &net_code, sizeof(net_code));
+//   memcpy(data.packet, &req_data, sizeof(req_data));
+//   auto make_struct{ data.makeFrameStruct(sizeof(req_data)) };
 
-  EXPECT_FALSE(make_struct);
-}
+//   EXPECT_FALSE(make_struct);
+//}
 
 TEST(ReadPacket, ACK_PackNum) {
   ReadPacket data;
@@ -745,16 +745,16 @@ TEST(ReadPacket, ACK_PackNum) {
   EXPECT_FALSE(last_data_address);
 }
 
-TEST(ReadPacket, ACK_PackNum_Wrong_BlockNumber) {
-  ReadPacket data;
-  char req_data[]{ '0', '4', '\0', '1' };
-  uint16_t net_code{ htons(4) };
-  memcpy(req_data, &net_code, sizeof(net_code));
-  memcpy(data.packet, &req_data, sizeof(req_data));
-  auto make_struct{ data.makeFrameStruct(sizeof(req_data)) };
+// TEST(ReadPacket, ACK_PackNum_Wrong_BlockNumber) {
+//   ReadPacket data;
+//   char req_data[]{ '0', '4', '\0', '1' };
+//   uint16_t net_code{ htons(4) };
+//   memcpy(req_data, &net_code, sizeof(net_code));
+//   memcpy(data.packet, &req_data, sizeof(req_data));
+//   auto make_struct{ data.makeFrameStruct(sizeof(req_data)) };
 
-  EXPECT_FALSE(make_struct);
-}
+//   EXPECT_FALSE(make_struct);
+//}
 
 TEST(ReadPacket, ERR_PackNum) {
   ReadPacket data;

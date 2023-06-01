@@ -6,22 +6,25 @@ option(BUILD_DOC "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_BINARY "Build the bin file for autotesting when BUILD_BINARY is enabled." OFF)
 
 #set(DEFAULT_BUILD_TYPE "Release")
+set(CMAKE_CXX_FLAGS_DEBUG_INIT "-ggdb")
+set(CMAKE_CXX_FLAGS_RELEASE_INIT "-o2")
 set (DEFAULT_BUILD_TYPE "Debug")
-set (CMAKE_CXX_COMPILER_VERSION 12)
+set (CMAKE_CXX_COMPILER_VERSION 13)
 set (CMAKE_CXX_STANDARD 23)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
+#set(CMAKE_CXX_COMPILER "/usr/bin/g++-13")
+set(CMAKE_C_COMPILER ${C_COMPILER})
 set (CMAKE_CXX_COMPILER ${CXX_COMPILER})
-set (CMAKE_C_COMPILER ${C_COMPILER})
-set(CMAKE_C_FLAGS_DEBUG "-g3 -DDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "-g3 -DDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "-std=gnu++2b")
+set(CMAKE_C_FLAGS_DEBUG "-ggdb -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-ggdb -DDEBUG")
+set(CMAKE_CXX_FLAGS "-std=gnu++2b -ggdb")
 
 
 include(GNUInstallDirs)
 
 
 add_library(libTFTP INTERFACE)
-target_compile_features(libTFTP INTERFACE cxx_std_20)
+target_compile_features(libTFTP INTERFACE cxx_std_23)
 #target_sources(clidict INTERFACE ${CMAKE_CURRENT_LIST_DIR}/src/libTFTP.hpp)
 
 install(TARGETS libTFTP

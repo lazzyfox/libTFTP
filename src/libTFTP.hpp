@@ -246,6 +246,8 @@ namespace TFTPShortNames {
   using std::back_inserter;
   using std::inserter;
   using std::remove_const;
+  using std::unexpected;
+
   template<std::size_t... Ints> using index_sequence = std::integer_sequence<std::size_t, Ints...>;
 
   constexpr string_view lib_ver{ "0.0.6" };
@@ -366,6 +368,7 @@ namespace TFTPShortNames {
   >;
   enum class TFTPMode : uint16_t { netascii = 1, octet = 2, mail = 3 };
   enum class TFTPOpeCode : uint16_t {
+    UNDEFINED = 0,
     TFTP_OPCODE_READ = 1,
     TFTP_OPCODE_WRITE = 2,
     TFTP_OPCODE_DATA = 3,
@@ -604,6 +607,7 @@ namespace TFTPDataType {
     optional<vector<ReqParam>> req_params;
     //  RFC 2090 multicast options set (if it is a multicast request)
     optional<MulticastOption> multicast;
+    //  Requested parameters set
     FileMode trans_params;
     //  Clear data in struct 
     void reset(void) {
@@ -635,14 +639,27 @@ namespace TFTPDataType {
     //  TODO: Add IP address range check!!!
     [[nodiscard]] bool makeFrameStruct(size_t pack_size = PACKET_MAX_SIZE) noexcept {
       bool ret{ false };
-      uint16_t opcode;
+      //uint16_t opcode;
 
       //  Network operation code format to host
       auto netToHost = [](char* str_code) {
         uint16_t net_code, host_code;
+        TFTPOpeCode ret;
+        const unordered_map <uint16_t, TFTPOpeCode> net_to_code {{0, TFTPOpeCode::UNDEFINED},
+                                                                 {1, TFTPOpeCode::TFTP_OPCODE_READ},
+                                                                 {2, TFTPOpeCode::TFTP_OPCODE_WRITE},
+                                                                 {3, TFTPOpeCode::TFTP_OPCODE_DATA},
+                                                                 {4, TFTPOpeCode::TFTP_OPCODE_ACK},
+                                                                 {5, TFTPOpeCode::TFTP_OPCODE_ERROR},
+                                                                 {6, TFTPOpeCode::TFTP_OPCODE_OACK}};
         memcpy(&net_code, str_code, 2);
         host_code = ntohs(net_code);
-        return host_code;
+        if(net_to_code.contains(host_code)) {
+          ret = net_to_code.at(host_code);
+        } else {
+          ret = TFTPOpeCode::UNDEFINED;
+        }
+        return ret;
       };
       //  Check if multicast ip adders has valid format and belongs to correct multicast address range
       auto checkIPRange = [](string addr) {
@@ -672,95 +689,90 @@ namespace TFTPDataType {
         }
         //  Check if address has valid numbers inside
         //  V4
-        if (delim == ".") {
-          if (ip_octets.size() != 4) {
-            return ret;
-          }
-          for (auto oct_count : ip_octets) {
-            tmp = oct_count.at(0);
-            if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 2) {
+        try {
+          if (delim == ".") {
+            if (ip_octets.size() != 4) {
               return ret;
             }
-            if (oct_count.size() > 1) {
-              tmp = oct_count.at(1);
-              if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+            for (auto oct_count : ip_octets) {
+              tmp = oct_count.at(0);
+              if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 2) {
                 return ret;
               }
-            }
-            if (oct_count.size() > 2) {
-              tmp = oct_count.at(2);
-              if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+              if (oct_count.size() > 1) {
+                tmp = oct_count.at(1);
+                if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+                  return ret;
+                }
+              }
+              if (oct_count.size() > 2) {
+                tmp = oct_count.at(2);
+                if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+                  return ret;
+                }
+              }
+              if (oct_count.size() > 3) {
+                tmp = oct_count.at(3);
+                if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
+                  return ret;
+                }
+              }
+              if (auto digit {std::stoi(oct_count, &pos, 10)}; digit < 0 || digit > 255) {
                 return ret;
+              } else {
+                ip_numbers.push_back(digit);
               }
             }
-            if (oct_count.size() > 3) {
-              tmp = oct_count.at(3);
-              if (auto digit {std::stoi(tmp, &pos, 10)}; digit < 0 || digit > 9) {
-                return ret;
-              }
+            //  Check IPV4 multicast address range
+            pos = ip_numbers.at(0);
+            if (pos >= 224 && pos <= 225 ) {
+              ret = true;
             }
-            if (auto digit {std::stoi(oct_count, &pos, 10)}; digit < 0 || digit > 255) {
+            if (pos >= 232 && pos <= 239 ) {
+              ret = true;
+            }
+          }
+          //  V6 check
+          if (delim == ":") {
+            bool check_terminated {false};
+            const std::regex hex_check ("[0-9a-fA-F]*");
+            if (ip_octets.size() < 1 || ip_octets.size() > 8) {
               return ret;
-            } else {
-              ip_numbers.push_back(digit);
+            }
+            auto check_consistency = [&check_terminated, &hex_check] (string oct_count) {
+              if (!std::regex_match(oct_count, hex_check)) {
+                check_terminated = true;
+              }
+            };
+            ranges::for_each(ip_octets, check_consistency);
+            if (!check_terminated) {
+              ret = true;
             }
           }
-          //  Check IPV4 multicast address range
-          pos = ip_numbers.at(0);
-          if (pos >= 224 && pos <= 225 ) {
-            ret = true;
-          }
-          if (pos >= 232 && pos <= 239 ) {
-            ret = true;
-          }
-        }
-        //  V6 check
-        if (delim == ":") {
-          bool check_terminated {false};
-          const std::regex hex_check ("[0-9a-fA-F]*");
-          if (ip_octets.size() < 1 || ip_octets.size() > 8) {
-            return ret;
-          }
-          auto check_consistency = [&check_terminated, &hex_check] (string oct_count) {
-            if (!std::regex_match(oct_count, hex_check)) {
-              check_terminated = true;
-            }
-          };
-          ranges::for_each(ip_octets, check_consistency);
-          if (!check_terminated) {
-            ret = true;
-          }
+        } catch (...) {
+          ret = false;
         }
         return ret;
       };
 
-      auto reqRW = [this, pack_size, checkIPRange](int opcode) ->bool {
+      auto reqRR = [this, pack_size, checkIPRange](void) ->bool {
         bool ret{ true };
-        uint16_t count_begin{ 2 }, count_end{ 2 }, count_mode;
-        string transf_mode, buffer, file_name;
+        uint16_t count_begin{ 2 }, count_end{ 2 }, count_mode {2};
+        string transf_mode, buffer, file_name, str_transf_mode;
         vector <ReqParam> options{};
+        OptExtent option_name;
 
-        //  Message content end position count
-        if (pack_size == PACKET_MAX_SIZE) {
-          bool double_zero {false};
-          while (true) {
-            if (packet[count_end] == '\0') {
-              if (double_zero) {
-                break;
-              } else {
-                double_zero = true;
-              }
-            } else {
-              double_zero = false;
-            }
-            ++count_end;
-            if (count_end > pack_size) {
-              return false;
-            }
+        //  File name check
+        while (packet[count_mode] != '\0') {
+          if (count_mode > pack_size) {
+            return false;
           }
+          file_name += packet[count_mode];
+          ++count_mode;
         }
+        count_end = count_mode;
+        ++count_mode;
         //  Transfer mode check
-        count_mode = count_end + 1;
         do {
           if (count_mode > pack_size) {
             return false;
@@ -768,27 +780,133 @@ namespace TFTPDataType {
           transf_mode += packet[count_mode];
           ++count_mode;
         } while (packet[count_mode] != '\0');
-
-        std::get<0>(packet_frame_structure) = OptCode.at(opcode);
+         
+        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_READ;
         std::get<1>(packet_frame_structure) = optional<TFTPError>{};
-        std::get<2>(packet_frame_structure) = optional<TFTPMode>(ModeCode.at(transf_mode));
+        if (ModeCode.contains(transf_mode)) {
+          std::get<2>(packet_frame_structure) = optional<TFTPMode>(ModeCode.at(transf_mode));
+        } else {
+          return false;
+        }
         std::get<3>(packet_frame_structure) = optional<uint16_t>{};
         std::get<4>(packet_frame_structure) = optional<uint16_t>(count_begin);
         std::get<5>(packet_frame_structure) = optional<uint16_t>(count_end);
-
-        //  Get file name
-        for (auto fl_name_count = count_begin; fl_name_count < count_end; ++fl_name_count) {
-          if (fl_name_count > pack_size) {
-            return false;
-          }
-          file_name += packet[fl_name_count];
-        }
         std::get<6>(packet_frame_structure) = optional<string>(file_name);
 
         //  Check additional options according RFC 1782 and above
         ++count_mode;
         // Check if additional options are exist
-        if (count_mode > count_end) {
+        if (count_mode > pack_size) {
+          return true;
+        }
+
+        while (count_mode < pack_size) {
+          transf_mode.clear();
+
+          do {
+            if (packet[count_mode] == '\0') {
+              continue;
+            }
+            transf_mode += packet[count_mode];
+            ++count_mode;
+            if (count_mode > pack_size) {
+              return false;
+            }
+          } while (packet[count_mode] != '\0');
+
+          buffer.clear();
+
+          do {
+            if (count_mode > pack_size) {
+              return false;
+            }
+            buffer += packet[++count_mode];
+          } while (packet[count_mode] != '\0');
+
+          if (buffer[0] == '\0') {
+            return false;
+          }
+          str_transf_mode = transf_mode;
+          if (OptExtGet.contains(str_transf_mode)) {
+            option_name = OptExtGet.at(str_transf_mode);
+          } else {
+            return false;
+          }
+          //  Set RFC-2090 in case of multicast request
+          if (option_name == OptExtent::multicast) {
+            const string delim{","};
+            string val_array{buffer};
+            size_t pos{0};
+            vector<string> multicast_val;
+            val_array.erase(remove_if(val_array.begin(), val_array.end(), isspace), val_array.end());
+            transform(val_array.begin(), val_array.end(), val_array.begin(), ::tolower);
+
+            do {
+              pos = val_array.find(delim);
+              multicast_val.push_back(val_array.substr(0, pos));
+              val_array.erase(0, pos + delim.length());
+            } while (pos != string::npos);
+            if (checkIPRange(multicast_val.at(0))) {
+              multicast = make_tuple(multicast_val.at(0), (uint16_t) stoi(multicast_val.at(1)), (bool)stoi(multicast_val.at(2)));
+            } else {
+              return false;
+            }
+            ++count_mode;  
+            continue;
+          }
+          count_begin = stoi(buffer);
+          options.emplace_back(std::make_pair(option_name, count_begin));
+          ++count_mode;
+        }
+
+        if (!options.empty()) {
+          req_params.emplace(options);
+        }
+        return ret;
+      };
+      
+      auto reqWR = [this, pack_size, checkIPRange](void) ->bool {
+        bool ret{ true };
+        uint16_t count_begin{ 2 }, count_end{ 2 }, count_mode {2};
+        string transf_mode, buffer, file_name, str_transf_mode;
+        vector <ReqParam> options{};
+        OptExtent option_name;
+
+        //  File name check
+        while (packet[count_mode] != '\0') {
+          if (count_mode > pack_size) {
+            return false;
+          }
+          file_name += packet[count_mode];
+          ++count_mode;
+        }
+        count_end = count_mode;
+        ++count_mode;
+        //  Transfer mode check
+        do {
+          if (count_mode > pack_size) {
+            return false;
+          }
+          transf_mode += packet[count_mode];
+          ++count_mode;
+        } while (packet[count_mode] != '\0');
+         
+        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_WRITE;
+        std::get<1>(packet_frame_structure) = optional<TFTPError>{};
+        if (ModeCode.contains(transf_mode)) {
+          std::get<2>(packet_frame_structure) = optional<TFTPMode>(ModeCode.at(transf_mode));
+        } else {
+          return false;
+        }
+        std::get<3>(packet_frame_structure) = optional<uint16_t>{};
+        std::get<4>(packet_frame_structure) = optional<uint16_t>(count_begin);
+        std::get<5>(packet_frame_structure) = optional<uint16_t>(count_end);
+        std::get<6>(packet_frame_structure) = optional<string>(file_name);
+
+        //  Check additional options according RFC 1782 and above
+        ++count_mode;
+        // Check if additional options are exist
+        if (count_mode > pack_size) {
           return true;
         }
         while (count_mode < pack_size) {
@@ -817,7 +935,12 @@ namespace TFTPDataType {
           if (buffer[0] == '\0') {
             return false;
           }
-          auto option_name{OptExtGet.at(string(transf_mode))};
+          str_transf_mode = transf_mode;
+          if (OptExtGet.contains(str_transf_mode)) {
+            option_name = OptExtGet.at(str_transf_mode);
+          } else {
+            return false;
+          }
           //  Set RFC-2090 in case of multicast request
           if (option_name == OptExtent::multicast) {
             const string delim{","};
@@ -851,7 +974,7 @@ namespace TFTPDataType {
         return ret;
       };
 
-      auto getData = [this, pack_size](int opcode) ->bool {
+      auto getData = [this, pack_size](void) ->bool {
         bool ret{ true };
         char blk_num[2];
 
@@ -862,7 +985,7 @@ namespace TFTPDataType {
         //Block number
         memcpy(blk_num, &packet[2], sizeof(uint16_t));
         int block_number{std::stoi(blk_num)};
-        std::get<0>(packet_frame_structure) = OptCode.at(opcode);
+        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_DATA;
         std::get<1>(packet_frame_structure) = optional<TFTPError>{};
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
         std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
@@ -871,7 +994,7 @@ namespace TFTPDataType {
         return ret;
       };
 
-      auto getACK = [this, pack_size](int opcode) -> bool {
+      auto getACK = [this, pack_size](void) -> bool {
         bool ret{ true };
         char blk_num[2];
 
@@ -882,7 +1005,7 @@ namespace TFTPDataType {
         //Block number
         memcpy(blk_num, &packet[2], sizeof(uint16_t));
         uint16_t block_number{(uint16_t) std::stoi(blk_num)};
-        std::get<0>(packet_frame_structure) = OptCode.at(opcode);
+        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_ACK;
         std::get<1>(packet_frame_structure) = optional<TFTPError>{};
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
         std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
@@ -891,7 +1014,7 @@ namespace TFTPDataType {
         return ret;
       };
 
-      auto getERROR = [this, pack_size](int opcode) ->bool {
+      auto getERROR = [this, pack_size](void) ->bool {
         bool ret{ true };
         char blk_num[2];
 
@@ -902,7 +1025,7 @@ namespace TFTPDataType {
         //Error number
         memcpy(blk_num, &packet[2], sizeof(uint16_t));
         uint16_t error_code{(uint16_t) std::stoi(blk_num)};
-        std::get<0>(packet_frame_structure) = OptCode.at(opcode);
+        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_ERROR;
         std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
         std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
         std::get<3>(packet_frame_structure) = optional<uint16_t>{};
@@ -911,23 +1034,27 @@ namespace TFTPDataType {
         return ret;
       };
 
-      const unordered_map<int, function<bool(int)>> req_data{ {1, reqRW}, {2, reqRW}, {3, getData}, {4, getACK}, {5, getERROR} };
-      opcode = netToHost(packet);
-      switch (opcode) {
-        case (int)TFTPOpeCode::TFTP_OPCODE_READ: ret = (pack_size < READ_MIN_SIZE) ? false : true; break;
-        case (int)TFTPOpeCode::TFTP_OPCODE_WRITE: ret = (pack_size < WRITE_MIN_SIZE) ? false : true; break;
-        case (int)TFTPOpeCode::TFTP_OPCODE_DATA: ret = (pack_size < DATA_MIN_SIZE) ? false : true; break;
-        case (int)TFTPOpeCode::TFTP_OPCODE_ACK: ret = (pack_size < ACK_MIN_SIZE) ? false : true; break;
-        case (int)TFTPOpeCode::TFTP_OPCODE_ERROR: ret = (pack_size < ERROR_MIN_SIZE) ? false : true; break;
-        case (int)TFTPOpeCode::TFTP_OPCODE_OACK: ret = (pack_size < OACK_MIN_SIZE) ? false : true; break;
+      const unordered_map<TFTPOpeCode, function<bool(void)>> req_data{ {TFTPOpeCode::TFTP_OPCODE_READ, reqRR},
+                                                                       {TFTPOpeCode::TFTP_OPCODE_WRITE, reqWR},
+                                                                       {TFTPOpeCode::TFTP_OPCODE_DATA, getData},
+                                                                       {TFTPOpeCode::TFTP_OPCODE_ACK, getACK},
+                                                                       {TFTPOpeCode::TFTP_OPCODE_ERROR, getERROR} };
+      auto rec_opcode = netToHost(packet);
+      switch (rec_opcode) {
+        case TFTPOpeCode::TFTP_OPCODE_READ: ret = (pack_size < READ_MIN_SIZE) ? false : true; break;
+        case TFTPOpeCode::TFTP_OPCODE_WRITE: ret = (pack_size < WRITE_MIN_SIZE) ? false : true; break;
+        case TFTPOpeCode::TFTP_OPCODE_DATA: ret = (pack_size < DATA_MIN_SIZE) ? false : true; break;
+        case TFTPOpeCode::TFTP_OPCODE_ACK: ret = (pack_size < ACK_MIN_SIZE) ? false : true; break;
+        case TFTPOpeCode::TFTP_OPCODE_ERROR: ret = (pack_size < ERROR_MIN_SIZE) ? false : true; break;
+        case TFTPOpeCode::TFTP_OPCODE_OACK: ret = (pack_size < OACK_MIN_SIZE) ? false : true; break;
         default: ret = false;
       }
       if (!ret) {
         return ret;
       }
-      if (req_data.contains(opcode)) {
-        auto dataLayOut{ req_data.at(opcode) };
-        ret = dataLayOut(opcode);
+      if (req_data.contains(rec_opcode)) {
+        auto dataLayOut{ req_data.at(rec_opcode) };
+        ret = dataLayOut();
       } else {
         ret = false;
       }
@@ -1949,8 +2076,6 @@ namespace TFTPTools {
         memset(&hints, 0, sizeof hints);
         hints.ai_family = ip_ver;
         hints.ai_socktype = SOCK_DGRAM;
-        if (!srv_addr.empty()) {
-        }
 
         if (srv_addr.empty()) {
           hints.ai_flags = AI_PASSIVE;
@@ -1969,10 +2094,50 @@ namespace TFTPTools {
         //  Assign socket
         for (auto addr_p = servinfo; addr_p != NULL; addr_p = addr_p->ai_next) {
           if (addr_p->ai_family == ip_ver && addr_p->ai_socktype == SOCK_DGRAM) {
+            //  Check if current IP address and port are satisfy expected conditions
             if (!srv_addr.empty()) {
-              sock_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+              if (ip_ver == AF_INET) {
+                char str_addr[INET_ADDRSTRLEN];
+                const auto curr_addr_data {(struct sockaddr_in*)(addr_p->ai_addr)};
+                const auto current_port {ntohs(curr_addr_data->sin_port)};
+                auto res {inet_ntop(AF_INET, &(curr_addr_data->sin_addr), str_addr, INET_ADDRSTRLEN)};
+                if (!res) {
+                  continue;
+                }
+                string curr_addr {str_addr};
+                if (!curr_addr.compare(string{srv_addr}) && current_port == port) {
+                  sock_id = socket(addr_p->ai_family, addr_p->ai_socktype, addr_p->ai_protocol);
+                  if (const auto sock_bind {bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen)}; sock_bind == SOCKET_ERR) {
+                    ret = "Socket binding error";
+                  }
+                  break;
+                } else {
+                  continue;
+                }
+              } else if (ip_ver == AF_INET6) {
+                char str_addr[INET6_ADDRSTRLEN];
+                const auto curr_addr_data {(struct sockaddr_in6*)(addr_p->ai_addr)};
+                const auto current_port {ntohs(curr_addr_data->sin6_port)};
+                auto res {inet_ntop(AF_INET6, &(curr_addr_data->sin6_addr), str_addr, INET6_ADDRSTRLEN)};
+                if (!res) {
+                  continue;
+                }
+                string curr_addr {str_addr};
+                if (!curr_addr.compare(string{srv_addr}) && current_port == port) {
+                  sock_id = socket(addr_p->ai_family, addr_p->ai_socktype, addr_p->ai_protocol);
+                  if (const auto sock_bind {bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen)}; sock_bind == SOCKET_ERR) {
+                    ret = "Socket binding error";
+                  }
+                  break;
+                } else {
+                  continue;
+                }
+              }
             } else {
-              sock_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+              sock_id = socket(addr_p->ai_family, addr_p->ai_socktype, addr_p->ai_protocol);
+              if (const auto sock_bind {bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen)}; sock_bind == SOCKET_ERR) {
+                ret = "Socket binding error";
+              }
             }
             if (sock_id == -1) {
               ret = "Socket create error";
@@ -1984,10 +2149,6 @@ namespace TFTPTools {
         if (sock_id == -1) {
           ret = "Socket create error";
           return ret;
-        }
-        //  Binding socket to port
-        if (const auto sock_bind {bind(sock_id, servinfo->ai_addr, servinfo->ai_addrlen)}; sock_bind == SOCKET_ERR) {
-          ret = "Socket binding error";
         }
         freeaddrinfo(servinfo); // free the linked-list
         return ret;
@@ -2056,7 +2217,7 @@ namespace TFTPTools {
         return false;
       }
       data->clear();
-      valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, /*MSG_WAITALL*/0, (struct sockaddr*)&cliaddr, &cli_addr_size);
+      valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, 0, (struct sockaddr*)&cliaddr, &cli_addr_size);
       if (valread == SOCKET_ERR) {
         return false;
       }
@@ -3894,7 +4055,6 @@ namespace TFTPSrvLib {
         TFTPShortNames::FileMode file_mode;
         auto thr_worker = std::make_unique<TFTPShortNames::ThrWorker>(std::make_tuple(&cv, &file_mode, &current_terminate, std::this_thread::get_id(), &upd_stat)); 
         auto thr_state{std::make_unique<TFTPShortNames::TransferState>()};
-        //auto thr_state = make_unique<TransferState>(make_tuple(std::this_thread::get_id(), base_dir, system_clock::now(), 0, nullptr, nullptr));
         std::unique_ptr<TFTPTools::NetSock> transfer{};
         std::ostringstream thr_convert;
         thr_convert << std::this_thread::get_id();
