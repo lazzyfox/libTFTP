@@ -9,11 +9,7 @@ set (CMAKE_CXX_COMPILER ${CXX_COMPILER})
 set(CMAKE_CXX_FLAGS "-ggdb -std=c++2b -Wall -Wextra -fPIC")
 # Find additional packages
 find_package(GTest CONFIG REQUIRED)
-# Creating tests
-include(CTest)
-enable_testing()
-add_test(NAME TestTFTP COMMAND libtftp_tests WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/build/tests)
-# Finial test
+# Creating unit tests
 add_executable(libtftp_tests tests.cpp)
 target_link_libraries(libtftp_tests PRIVATE GTest::gtest)
 # Run unit tests after compilation
