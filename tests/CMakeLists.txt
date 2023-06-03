@@ -12,7 +12,6 @@ find_package(GTest CONFIG REQUIRED)
 # Creating tests
 include(CTest)
 enable_testing()
-find_package(GTest CONFIG REQUIRED)
 add_test(NAME TestTFTP COMMAND libtftp_tests WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/build/tests)
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
