@@ -63,6 +63,7 @@ install(DIRECTORY ${PROJECT_SOURCE_DIR}/src/ DESTINATION include)
 
 
 if (BUILD_TESTS)
+  message(STATUS "Making unit tests")
   include(CTest)
   enable_testing()
   find_package(GTest CONFIG REQUIRED)
@@ -72,12 +73,14 @@ endif (BUILD_TESTS)
 
 
 if (BUILD_BINARY)
+  message(STATUS "Making server and client")
   add_subdirectory(bin/srv)
   add_subdirectory(bin/cln)
 endif (BUILD_BINARY)
 
 
 if (BUILD_DOC)
+  message(STATUS "Making documentation")
   find_package(Doxygen)
   if (DOXYGEN_FOUND)
     # set input and output files
