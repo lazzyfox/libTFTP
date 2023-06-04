@@ -9,6 +9,7 @@ set(CMAKE_CXX_FLAGS "-ggdb -std=c++2b -std=gnu++2b -Wall -Wextra -fPIC -pipe")
 # Find additional packages
 find_package(GTest CONFIG REQUIRED)
 # Creating unit tests
+message(STATUS "Making Unit tests")
 add_executable(libtftp_tests tests.cpp)
 target_link_libraries(libtftp_tests PRIVATE GTest::gtest)
 # Run unit tests after compilation
