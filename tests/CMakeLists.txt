@@ -13,8 +13,10 @@ message(STATUS "Making Unit tests")
 add_executable(libtftp_tests tests.cpp)
 target_link_libraries(libtftp_tests PRIVATE GTest::gtest)
 # Run unit tests after compilation
-#include(GoogleTest)
-#gtest_discover_tests(libtftp_tests)
 include(CTest)
 enable_testing()
 add_test(NAME TestTFTP COMMAND libtftp_tests)
+#include(GoogleTest)
+#gtest_add_tests(TARGET libtftp_tests)
+#gtest_discover_tests(TARGET libtftp_tests)
+
