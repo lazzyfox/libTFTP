@@ -982,15 +982,19 @@ namespace TFTPDataType {
           return false;
         }
 
-        //Block number
-        memcpy(blk_num, &packet[2], sizeof(uint16_t));
-        int block_number{std::stoi(blk_num)};
-        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_DATA;
-        std::get<1>(packet_frame_structure) = optional<TFTPError>{};
-        std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
-        std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
-        std::get<4>(packet_frame_structure) = optional<uint16_t>(5);
-        std::get<5>(packet_frame_structure) = optional<uint16_t>(pack_size - 1);
+        //  Set data to packet properties
+        try {
+          memcpy(blk_num, &packet[2], sizeof(uint16_t));
+          int block_number{std::stoi(blk_num)};
+          std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_DATA;
+          std::get<1>(packet_frame_structure) = optional<TFTPError>{};
+          std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
+          std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
+          std::get<4>(packet_frame_structure) = optional<uint16_t>(5);
+          std::get<5>(packet_frame_structure) = optional<uint16_t>(pack_size - 1);
+        } catch (...) {
+          ret = false;
+        }
         return ret;
       };
 
@@ -1001,16 +1005,18 @@ namespace TFTPDataType {
         if (pack_size < ACK_MIN_SIZE) {
           return false;
         }
-
-        //Block number
-        memcpy(blk_num, &packet[2], sizeof(uint16_t));
-        uint16_t block_number{(uint16_t) std::stoi(blk_num)};
-        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_ACK;
-        std::get<1>(packet_frame_structure) = optional<TFTPError>{};
-        std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
-        std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
-        std::get<4>(packet_frame_structure) = optional<uint16_t>{};
-        std::get<5>(packet_frame_structure) = optional<uint16_t>{};
+        try {
+          memcpy(blk_num, &packet[2], sizeof(uint16_t));
+          uint16_t block_number{(uint16_t) std::stoi(blk_num)};
+          std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_ACK;
+          std::get<1>(packet_frame_structure) = optional<TFTPError>{};
+          std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
+          std::get<3>(packet_frame_structure) = optional<uint16_t>(block_number);
+          std::get<4>(packet_frame_structure) = optional<uint16_t>{};
+          std::get<5>(packet_frame_structure) = optional<uint16_t>{};
+        } catch (...) {
+          ret = false;
+        }
         return ret;
       };
 
@@ -1021,16 +1027,18 @@ namespace TFTPDataType {
         if (pack_size < ERROR_MIN_SIZE) {
           return false;
         }
-
-        //Error number
-        memcpy(blk_num, &packet[2], sizeof(uint16_t));
-        uint16_t error_code{(uint16_t) std::stoi(blk_num)};
-        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_ERROR;
-        std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
-        std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
-        std::get<3>(packet_frame_structure) = optional<uint16_t>{};
-        std::get<4>(packet_frame_structure) = optional<uint16_t>{ 5 };
-        std::get<5>(packet_frame_structure) = optional<uint16_t>{ pack_size - 2 };
+        try {
+          memcpy(blk_num, &packet[2], sizeof(uint16_t));
+          uint16_t error_code{(uint16_t) std::stoi(blk_num)};
+          std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_ERROR;
+          std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
+          std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
+          std::get<3>(packet_frame_structure) = optional<uint16_t>{};
+          std::get<4>(packet_frame_structure) = optional<uint16_t>{ 5 };
+          std::get<5>(packet_frame_structure) = optional<uint16_t>{ pack_size - 2 };
+        } catch (...) {
+          ret = false;
+        }
         return ret;
       };
 

@@ -9,3 +9,4 @@ results/
 Testing/
 build/
 tests/build
+CMakeFiles/
