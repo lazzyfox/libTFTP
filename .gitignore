@@ -10,3 +10,4 @@ Testing/
 build/
 tests/build
 CMakeFiles/
+autotests/__pycache__
