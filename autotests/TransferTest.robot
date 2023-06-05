@@ -1,8 +1,9 @@
 *** Settings ***
 Documentation      Lib TFTP version 0.0.2 test 
 Library            OperatingSystem
-Library            /home/fox/fast_proj/libTFTP/tests/TFTPTransport.py     ${ServerIP_Val}     ${PortID_Val}
-Library            /home/fox/fast_proj/libTFTP/tests/libRunStop.py      ${TestWorkDir}    ${TestLogDir}
+Library		   Process
+Library            ./TFTPTransport.py     ${ServerIP_Val}     ${PortID_Val}
+Library            ./libRunStop.py      ${TestWorkDir}    ${TestLogDir}
 #Test Setup         libRunStop.startProc    ${RunArg}
 #Test Teardown     Close Application
 
