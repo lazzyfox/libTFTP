@@ -8,7 +8,7 @@ Library            ./libRunStop.py      ${TestWorkDir}    ${TestLogDir}
 #Test Teardown     Close Application
 
 *** Variables ***
-${MESSAGE}             Test sute ver 0.0.1
+${MESSAGE}             Test sute ver 0.0.2
 ${UploadMsg}           Upload test file test
 ${DownloadMsg}         Download test file test
 ${ProcRunCheckTrue}    Process running
@@ -24,7 +24,7 @@ ${UplFileName_Val}      './test.txt'
 ${DownFileName_Key}     -d
 ${DownFileName_Val}     test.txt
 ${LocalDirPath_Key}     -l
-${LocalDirPath_Val}     /tmp
+${LocalDirPath_Val}     ${TEMPDIR}
 ${LocalFileName_Key}    -f
 ${LocalFileName_Val}    './test.txt'
 ${PackSize_Key}         -b
@@ -36,12 +36,15 @@ ${TimeOut_Val_Octet}    octet
 ${TimeOut_Val_ACII}     ascii
 ${Quit_Key}             -q
 ${Help_Key}             -?
-${TestWorkDir}     "/tmp/tftp_test"
-${TestLogDir}     "/tmp/tftp_test"
+#${TestWorkDir}     "/tmp/tftp_test"
+#${TestLogDir}      "/tmp/tftp_test"
+${TestWorkDir}      ${TEMPDIR}${/}tftp_test${/}work
+${TestLogDir}       ${TEMPDIR}${/}tftp_test${/}log
 ${PidId}=     0
-${RunStatus} =     running
+${RunStatus} =      running
 ${SleepStatus}=     sleeping
-${SrvPath}=     /home/fox/fast_proj/libTFTP/build/bin/srv/tftp_srv
+#${SrvPath}=     /home/fox/fast_proj/libTFTP/build/bin/srv/tftp_srv
+${SrvPath}=     ${CURDIR}${/}..}${/}build}${/}bin}${/}srv}${/}tftp_srv
 
 
 *** Test Cases ***
