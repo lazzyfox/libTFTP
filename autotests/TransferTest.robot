@@ -52,6 +52,7 @@ Start Test
     [Documentation]    Run TFTP server.
     Log    ${MESSAGE}
     ${PidId}=    libRunStop.runProc     ${SrvPath}     -p     ${PortID_Val}     -a     '${ServerIP_Val}'    -l    '${TestLogDir}'    -d    '${TestWorkDir}'
+    Sleep    3s
     CheckServerStatus
     Log    ${PidId}
 
