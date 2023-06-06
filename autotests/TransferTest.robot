@@ -44,7 +44,7 @@ ${PidId}=     0
 ${RunStatus} =      running
 ${SleepStatus}=     sleeping
 #${SrvPath}=     /home/fox/fast_proj/libTFTP/build/bin/srv/tftp_srv
-${SrvPath}=     ${CURDIR}${/}../build$/bin/srv/tftp_srv
+${SrvPath}=     ${CURDIR}${/}../build/bin/srv/tftp_srv
 
 
 *** Test Cases ***
