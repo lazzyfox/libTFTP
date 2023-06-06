@@ -11,3 +11,4 @@ build/
 tests/build
 CMakeFiles/
 autotests/__pycache__
+.robotcode_cache/
