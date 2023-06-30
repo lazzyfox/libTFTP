@@ -785,8 +785,10 @@ TEST(ReadPacket, ERR_PackNum) {
 TEST(ReadPacket, GetResultNegotiationRead) {
   ReadPacket data;
   char req_data[]{ '0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0' };
-  const string ex_file_name{ "ak.txt" };
+  const string ex_file_name{ "/tmp/tftp_test/ak.txt" };
+  const std::filesystem::path work_dir {"/tmp/tftp_test"};
   uint16_t net_code{ htons(1) };
+
   optional<size_t> port{};
   sockaddr_storage addr_stor;
   memcpy(req_data, &net_code, sizeof(net_code));
@@ -794,9 +796,9 @@ TEST(ReadPacket, GetResultNegotiationRead) {
   auto make_struct{ data.makeFrameStruct(sizeof(req_data)) };
 
   ASSERT_TRUE(make_struct);
-  ASSERT_TRUE(data.req_params);
+  ASSERT_TRUE(data.req_params.has_value());
   ASSERT_FALSE(data.multicast);
-  ASSERT_TRUE(data.getParams(addr_stor, port));
+  ASSERT_TRUE(data.getParams(addr_stor, work_dir, port));
 
   string file_name{ std::get<0>(data.trans_params).string() };
 
@@ -818,7 +820,8 @@ TEST(ReadPacket, GetResultNegotiationRead) {
 TEST(ReadPacket, GetResultMulticast_V4) {
   ReadPacket data;
   char req_data[]{ '0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0', 'm', 'u', 'l', 't', 'i', 'c', 'a', 's', 't', '\0', '2', '2', '4', '.', '0', '.', '0', '.','1',',', '1', '7', '5', '8', ',' , '1', '\0' };
-  const string ex_file_name{ "ak.txt" };
+  const string ex_file_name{ "/tmp/tftp_test/ak.txt" };
+  const std::filesystem::path work_dir {"/tmp/tftp_test"};
   uint16_t net_code{ htons(1) };
   optional<size_t> port{};
   sockaddr_storage addr_stor;
@@ -831,7 +834,7 @@ TEST(ReadPacket, GetResultMulticast_V4) {
   ASSERT_TRUE(make_struct);
   ASSERT_TRUE(data.req_params);
   ASSERT_TRUE(data.multicast);
-  ASSERT_TRUE(data.getParams(addr_stor, port));
+  ASSERT_TRUE(data.getParams(addr_stor, work_dir, port));
 
   string file_name{ std::get<0>(data.trans_params).string() };
 
@@ -856,7 +859,8 @@ TEST(ReadPacket, GetResultMulticast_V4) {
 TEST(ReadPacket, GetResultMulticast_V6) {
   ReadPacket data;
   char req_data[]{ '0', '1', 'a', 'k', '.', 't', 'x', 't', '\0', 'n', 'e', 't', 'a', 's', 'c', 'i', 'i', '\0', 't', 's', 'i', 'z', 'e', '\0', '0', '\0', 'b', 'l', 'k', 's', 'i', 'z', 'e', '\0', '5', '1', '2', '\0', 't', 'i', 'm', 'e', 'o', 'u', 't', '\0', '6', '\0', 'm', 'u', 'l', 't', 'i', 'c', 'a', 's', 't', '\0', 'f', 'f','f','f',  ':', '1','1','1','1',':', 'f','f','f', 'f',':', '1','1','1','1',':', 'f','f','f','f', ':',  '1','1','1','1', ':', 'f','f','f','f',':', '1','1','1','1',',', '1', '7', '5', '8', ',' , '1', '\0' };
-  const string ex_file_name{ "ak.txt" };
+  const string ex_file_name{ "/tmp/tftp_test/ak.txt" };
+  const std::filesystem::path work_dir {"/tmp/tftp_test"};
   uint16_t net_code{ htons(1) };
   optional<size_t> port{};
   sockaddr_storage addr_stor;
@@ -869,7 +873,7 @@ TEST(ReadPacket, GetResultMulticast_V6) {
   ASSERT_TRUE(make_struct);
   ASSERT_TRUE(data.req_params);
   ASSERT_TRUE(data.multicast);
-  ASSERT_TRUE(data.getParams(addr_stor, port));
+  ASSERT_TRUE(data.getParams(addr_stor, work_dir, port));
 
   string file_name{ std::get<0>(data.trans_params).string() };
 

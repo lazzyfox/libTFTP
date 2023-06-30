@@ -33,15 +33,15 @@ constexpr std::string_view hlp {"Possible values for command line : \n -p port n
 
 
 int main(int argc, char* argv[]) {
-  int port_id {5001};
-  std::string ip_addr;
+  int port_id {8099};
+  std::string ip_addr {"192.168.1.4"};
   std::filesystem::path local_dir {std::filesystem::current_path()};
-  std::string rem_file;
-  std::string local_file;
+  std::string rem_file {"ak.txt"};
+  std::string local_file {"l_ak.txt"};
   std::filesystem::path path;
   std::string input_line;
-  std::optional<size_t> buff_size, timeout;
-  std::optional<bool> download;
+  std::optional<size_t> buff_size {512}, timeout {6};
+  std::optional<bool> download {true};  //  TODO: Delete value after debug
   bool transfer_mode {false};
   std::unique_ptr<TFTPCln> cln;
   std::variant<size_t, std::string_view> transmission_res;

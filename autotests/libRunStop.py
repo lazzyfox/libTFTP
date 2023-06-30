@@ -9,8 +9,9 @@ import sys
 class libRunStop:
     pid = 0
     proc = 0
-    work_dir = "/tmp/tftp_test"
-    log_dir = "/tmp/tftp_test"
+    work_dir = "/tmp/tftp_test/work"
+    log_dir = "/tmp/tftp_test/log"
+    download_dir = "/tmp/tftp_test/download"
 
     def __init__(self, work_path, log_path):
         libRunStop.work_dir = work_path
@@ -20,6 +21,8 @@ class libRunStop:
             os.makedirs(libRunStop.work_dir)
         if not os.path.exists(libRunStop.log_dir):
             os.makedirs(libRunStop.log_dir)
+        if not os.path.exists(libRunStop.download_dir):
+            os.makedirs(libRunStop.download_dir)
 
     def startProc(self, args):
         libRunStop.proc = subprocess.Popen([*args], shell=False)
