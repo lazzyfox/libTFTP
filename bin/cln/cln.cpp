@@ -34,13 +34,15 @@ constexpr std::string_view hlp {"Possible values for command line : \n -p port n
 
 int main(int argc, char* argv[]) {
   int port_id {8099};
-  std::string ip_addr {"192.168.1.4"};
+  //std::string_view ip_addr {"172.16.116.129"};
+  //std::string_view ip_addr {"fe80::8879:432a:474f:f960"};
+  std::string_view ip_addr {"192.168.1.4"};
   std::filesystem::path local_dir {std::filesystem::current_path()};
   std::string rem_file {"ak.txt"};
   std::string local_file {"l_ak.txt"};
   std::filesystem::path path;
   std::string input_line;
-  std::optional<size_t> buff_size {512}, timeout {6};
+  size_t buff_size {512}, timeout {6};
   std::optional<bool> download {true};  //  TODO: Delete value after debug
   bool transfer_mode {false};
   std::unique_ptr<TFTPCln> cln;
@@ -177,12 +179,12 @@ int main(int argc, char* argv[]) {
   }
   //  Starting transfer
   path = local_dir /= local_file;
-  cln = std::make_unique<TFTPCln> (buff_size, timeout);
+  cln = std::make_unique<TFTPCln> (ip_addr, port_id, buff_size, timeout);
   if (download.has_value()) {
     if (download.value()) {
-      transmission_res = cln->downLoad(ip_addr, port_id, rem_file, path, buff_size, timeout, transfer_mode, false);
+      transmission_res = cln->downLoad(/*ip_addr, port_id, */rem_file, path, buff_size, timeout, transfer_mode, false);
     } else {
-      transmission_res = cln->upLoad(ip_addr, port_id, rem_file, path, buff_size, timeout, transfer_mode);
+      transmission_res = cln->upLoad(/*ip_addr, port_id, */rem_file, path, buff_size, timeout, transfer_mode);
     }
     if (auto transmission_err {std::get_if<std::string_view>(&transmission_res)}; transmission_err) {
       std::cout<< "Transmission error - "<<*transmission_err;
@@ -196,9 +198,9 @@ int main(int argc, char* argv[]) {
     //  Starting transmission
     if (download.has_value()) {
       if (download.value()) {
-        transmission_res = cln->downLoad(ip_addr, port_id, rem_file, path, buff_size, timeout, transfer_mode, false);
+        transmission_res = cln->downLoad(/*ip_addr, port_id, */rem_file, path, buff_size, timeout, transfer_mode, false);
       } else {
-        transmission_res = cln->upLoad(ip_addr, port_id, rem_file, path, buff_size, timeout, transfer_mode);
+        transmission_res = cln->upLoad(/*ip_addr, port_id, */rem_file, path, buff_size, timeout, transfer_mode);
       }
       if (auto transmission_err {std::get_if<std::string_view>(&transmission_res)}; transmission_err) {
         std::cout<< "Transmission error - "<<*transmission_err;

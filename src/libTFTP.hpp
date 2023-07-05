@@ -1899,12 +1899,12 @@ namespace TFTPTools {
       BaseNet(const size_t&& port, const int&& ip_ver, const string_view&& srv_addr) 
       : port{std::move(port)}, ip_ver{std::move(ip_ver)}, srv_addr{std::move(srv_addr)} {service_ini_stat = initSock();}
       //  Clients connection
-      BaseNet(const size_t& buff_size, const size_t& timeout) : buff_size{ buff_size }, timeout{ timeout } {service_ini_stat = init(0);}
-      BaseNet(const size_t&& buff_size, const size_t&& timeout) : buff_size{ std::move(buff_size) }, timeout{ std::move(timeout) } {service_ini_stat = init(0);}
+      BaseNet(const size_t& buff_size, const size_t& timeout) : buff_size{ buff_size }, timeout{ timeout } {service_ini_stat = initCln();}
+      BaseNet(const size_t&& buff_size, const size_t&& timeout) : buff_size{ std::move(buff_size) }, timeout{ std::move(timeout) } {service_ini_stat = initCln();}
       BaseNet(const size_t& port, const int& ip_ver, string_view& srv_addr, const size_t& buff_size, const size_t& timeout) 
-      : port{port}, ip_ver{ip_ver}, srv_addr{srv_addr}, buff_size{ buff_size }, timeout{ timeout } {service_ini_stat = initSock();}
+      : port{port}, ip_ver{ip_ver}, srv_addr{srv_addr}, buff_size{ buff_size }, timeout{ timeout } {service_ini_stat = initCln();}
       BaseNet(const size_t&& port, const int&& ip_ver, string_view&& srv_addr, const size_t&& buff_size, const size_t&& timeout) 
-      : port{std::move(port)}, ip_ver{std::move(ip_ver)}, srv_addr{std::move(srv_addr)}, buff_size{ std::move(buff_size) }, timeout{ std::move(timeout) } {service_ini_stat = initSock();}
+      : port{std::move(port)}, ip_ver{std::move(ip_ver)}, srv_addr{std::move(srv_addr)}, buff_size{ std::move(buff_size) }, timeout{ std::move(timeout) } {service_ini_stat = initCln();}
       //  Creating standard net IO socket class or multicast socket if in file mode multicast settings exists 
       BaseNet(const string_view& srv_addr, const int& ip_ver, const FileMode* const trans_mode) 
       : BaseNet{0, ip_ver, srv_addr} {
@@ -2049,9 +2049,9 @@ namespace TFTPTools {
       int opt {1};
       struct sockaddr_storage cliaddr;  //  Client connection information - address 
       int addrlen {sizeof(address)};
-      struct addrinfo socket_info;
+      struct sockaddr socket_info; //  Local interface address
       socklen_t sock_info_size {0};
-      socklen_t  cli_addr_size;
+      socklen_t  cli_addr_size {sizeof(cliaddr)};
       string multicast_address;
       struct sockaddr_in multicast_int;
       struct in_addr local_int;
@@ -2183,7 +2183,7 @@ namespace TFTPTools {
             close(sock_id);
             continue;
           }
-          socket_info = *addr_p;
+          socket_info = *addr_p->ai_addr;
           sock_info_size = addr_p->ai_addrlen;
           break;
         }
@@ -2210,7 +2210,7 @@ namespace TFTPTools {
             auto s_addr {str_addr.c_str()};
             auto s_port {str_port.c_str()};
             status = getaddrinfo(s_addr, s_port, &hints, &servinfo);
-          }
+          } 
           if (status) {
             ret = "Impossible resolve address"sv;
             return ret;
@@ -2231,10 +2231,16 @@ namespace TFTPTools {
                   string curr_addr {str_addr};
                   if (!curr_addr.compare(string{srv_addr}) && current_port == port) {
                     sock_id = socket(addr_p->ai_family, addr_p->ai_socktype, addr_p->ai_protocol);
+                    if (sock_id == SOCKET_ERR) {
+                      ret = "Socket create error"sv;
+                      break;
+                    }
                     if (const auto sock_bind {bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen)}; sock_bind == SOCKET_ERR) {
                       ret = "Socket binding error"sv;
+                      close(sock_id);
+                      break;
                     }
-                    socket_info = *addr_p;
+                    socket_info = *addr_p->ai_addr;
                     sock_info_size = addr_p->ai_addrlen;
                     break;
                   } else {
@@ -2254,7 +2260,7 @@ namespace TFTPTools {
                     if (const auto sock_bind {bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen)}; sock_bind == SOCKET_ERR) {
                       ret = "Socket binding error";
                     }
-                    socket_info = *addr_p;
+                    socket_info = *addr_p->ai_addr;
                     sock_info_size = addr_p->ai_addrlen;
                     break;
                   } else {
@@ -2266,17 +2272,17 @@ namespace TFTPTools {
                 if (const auto sock_bind {bind(sock_id, addr_p->ai_addr, addr_p->ai_addrlen)}; sock_bind == SOCKET_ERR) {
                   ret = "Socket binding error";
                 }
-                socket_info = *addr_p;
+                socket_info = *addr_p->ai_addr;
                 sock_info_size = addr_p->ai_addrlen;
               }
-              if (sock_id == -1) {
+              if (sock_id == SOCKET_ERR) {
                 ret = "Socket create error";
                 return ret;
               }
             } 
           }
           //  Right combination for socket not found
-          if (sock_id == -1) {
+          if (sock_id == SOCKET_ERR) {
             ret = "Socket create error";
             return ret;
           }
@@ -2306,107 +2312,148 @@ namespace TFTPTools {
         }
         return ret;
       }
+      [[nodiscard]] optional<string_view> initCln () noexcept {
+        optional<string_view> ret;
+        struct addrinfo hints, * servinfo = nullptr;
+        memset(&hints, 0, sizeof hints);
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_flags = AI_PASSIVE;
+        string str_port{ std::to_string(port) };
+        string str_addr{ srv_addr };
+        struct timeval timeout_val;
+        timeout_val.tv_sec = timeout;
+        timeout_val.tv_usec = 0;
+
+
+        auto s_addr {str_addr.c_str()};
+        auto s_port {str_port.c_str()};
+        if (auto status {getaddrinfo(s_addr, s_port, &hints, &servinfo)}; status) {
+          ret = "Impossible resolve address"sv;
+          return ret;
+        }
+
+        // Looking for suitable interface
+        for (auto addr_p = servinfo; addr_p != NULL; addr_p = addr_p->ai_next) {
+          sock_id = socket(addr_p->ai_family, addr_p->ai_socktype, addr_p->ai_protocol);
+          if (sock_id == SOCKET_ERR) {
+            continue;
+          }
+          socket_info = *addr_p->ai_addr;
+          sock_info_size = addr_p->ai_addrlen;
+          break;
+        }
+        freeaddrinfo(servinfo);
+        //  Socket options settings
+        if (setsockopt(sock_id, SOL_SOCKET, SO_RCVBUF, &buff_size, sizeof(buff_size))) {
+          ret = "Socket SET RECEIVE BUFFER SIZE error"sv;
+        }
+        if (setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO, &timeout_val, sizeof(timeout_val))) {
+          ret = "Socket SET RECEIVE TIMEOUT error"sv;
+        }
+        return ret;
+      }
   };
 
   //  Networking for main server
   class SrvNet : public BaseNet {
-  public:
-    explicit SrvNet(size_t port) : BaseNet{ port } {}
-    SrvNet() : BaseNet{} {}
-    SrvNet(const size_t& port, const size_t& max_file_size) : BaseNet{ port }, max_file_size{ max_file_size } {}
-    SrvNet(const size_t& port, const size_t& max_file_size, const uint8_t& max_time_out, const uint16_t& max_buff_size)
-    : BaseNet{ port }, max_file_size{ max_file_size }, max_time_out{ max_time_out }, max_buff_size{ max_buff_size } {}
-    SrvNet(const size_t& port, string_view& srv_addr) : BaseNet(port, srv_addr) {}
-    SrvNet(const size_t&& port, string_view&& srv_addr) : BaseNet(std::move(port), std::move(srv_addr)) {}
-    SrvNet(const size_t& port, const int& ip_ver, string_view& srv_addr) : BaseNet(port, ip_ver, srv_addr) {}
-    SrvNet(const size_t&& port, const int&& ip_ver, string_view&& srv_addr) : BaseNet(std::move(port), std::move(ip_ver), std::move(srv_addr)) {}
-    SrvNet(const size_t& port, const size_t& max_file_size, const int& ip_ver, string_view& srv_addr)
-    : BaseNet(port, ip_ver, srv_addr), max_file_size{ max_file_size } {}
-    SrvNet(const size_t&& port, const size_t&& max_file_size, const int&& ip_ver, string_view&& srv_addr)
-    : BaseNet(std::move(port), std::move(ip_ver), std::move(srv_addr)), max_file_size{ std::move(max_file_size) } {}
-    SrvNet(const size_t& port, const size_t& max_file_size, const uint8_t& max_time_out, const uint16_t& max_buff_size, const int& ip_ver, string_view& srv_addr)
-    : BaseNet{ port, ip_ver, srv_addr }, max_file_size{ max_file_size }, max_time_out{ max_time_out }, max_buff_size{ max_buff_size } {}
-    SrvNet(const size_t&& port, const size_t&& max_file_size, const uint8_t&& max_time_out, const uint16_t&& max_buff_size, const int&& ip_ver, string_view&& srv_addr)
-    : BaseNet{ std::move(port), std::move(ip_ver), std::move(srv_addr)}, max_file_size{std::move(max_file_size)}, max_time_out{std::move(max_time_out)}, max_buff_size{std::move(max_buff_size)} {}
-    virtual ~SrvNet() = default;
+    public:
+      explicit SrvNet(size_t port) : BaseNet{ port } {}
+      SrvNet() : BaseNet{} {}
+      SrvNet(const size_t& port, const size_t& max_file_size) : BaseNet{ port }, max_file_size{ max_file_size } {}
+      SrvNet(const size_t& port, const size_t& max_file_size, const uint8_t& max_time_out, const uint16_t& max_buff_size)
+      : BaseNet{ port }, max_file_size{ max_file_size }, max_time_out{ max_time_out }, max_buff_size{ max_buff_size } {}
+      SrvNet(const size_t& port, string_view& srv_addr) : BaseNet(port, srv_addr) {}
+      SrvNet(const size_t&& port, string_view&& srv_addr) : BaseNet(std::move(port), std::move(srv_addr)) {}
+      SrvNet(const size_t& port, const int& ip_ver, string_view& srv_addr) : BaseNet(port, ip_ver, srv_addr) {}
+      SrvNet(const size_t&& port, const int&& ip_ver, string_view&& srv_addr) : BaseNet(std::move(port), std::move(ip_ver), std::move(srv_addr)) {}
+      SrvNet(const size_t& port, const size_t& max_file_size, const int& ip_ver, string_view& srv_addr)
+      : BaseNet(port, ip_ver, srv_addr), max_file_size{ max_file_size } {}
+      SrvNet(const size_t&& port, const size_t&& max_file_size, const int&& ip_ver, string_view&& srv_addr)
+      : BaseNet(std::move(port), std::move(ip_ver), std::move(srv_addr)), max_file_size{ std::move(max_file_size) } {}
+      SrvNet(const size_t& port, const size_t& max_file_size, const uint8_t& max_time_out, const uint16_t& max_buff_size, const int& ip_ver, string_view& srv_addr)
+      : BaseNet{ port, ip_ver, srv_addr }, max_file_size{ max_file_size }, max_time_out{ max_time_out }, max_buff_size{ max_buff_size } {}
+      SrvNet(const size_t&& port, const size_t&& max_file_size, const uint8_t&& max_time_out, const uint16_t&& max_buff_size, const int&& ip_ver, string_view&& srv_addr)
+      : BaseNet{ std::move(port), std::move(ip_ver), std::move(srv_addr)}, max_file_size{std::move(max_file_size)}, max_time_out{std::move(max_time_out)}, max_buff_size{std::move(max_buff_size)} {}
+      virtual ~SrvNet() = default;
 
-    SrvNet(const SrvNet&) = delete;
-    SrvNet(const SrvNet&&) = delete;
-    SrvNet& operator = (const SrvNet&) = delete;
-    SrvNet& operator = (const SrvNet&&) = delete;
-    
-    //  Get error message
-    optional<string_view> getInitStatus (void) const noexcept {
-      return service_ini_stat;
-    }
-    //  Open socket and waiting for clients connections
-    bool waitData(ReadPacket* data = nullptr) noexcept {
-      bool ret{ true };
-      int valread;
-      if (!data) {
-        return false;
+      SrvNet(const SrvNet&) = delete;
+      SrvNet(const SrvNet&&) = delete;
+      SrvNet& operator = (const SrvNet&) = delete;
+      SrvNet& operator = (const SrvNet&&) = delete;
+      
+      //  Get error message
+      optional<string_view> getInitStatus (void) const noexcept {
+        return service_ini_stat;
       }
-      data->clear();
-      valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, 0, (struct sockaddr*)&cliaddr, &cli_addr_size);
-      if (valread == SOCKET_ERR) {
-        return false;
-      }
-      ret = data->makeFrameStruct(valread);
-      return ret;
-    }
-    //  Send error to client
-    bool sendErr(const TFTPError err_id, const string& err_msg) noexcept {
-      bool ret{ true };
-      uint8_t err_size{ 5 };
-      err_size += err_msg.size();
-      ErrorPacket error(err_size, err_id, err_msg.c_str());
-      sendto(sock_id, &error.packet, error.packet_size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-      return ret;
-    }
-    //  Check if requested params (RFC 1782) are compatible with current settings
-    bool checkParam(FileMode* const req_param, optional<size_t> file_size) {
-      if (!req_param) {
-        return false;
-      }
-      if (auto buff_size{std::get<4>(*req_param)}; buff_size) {
-        if (buff_size.value() > max_buff_size) {
-          std::get<4>(*req_param) = max_buff_size;
+      //  Open socket and waiting for clients connections
+      bool waitData(ReadPacket* data = nullptr) noexcept {
+        bool ret{ true };
+        int valread;
+        if (!data) {
+          return false;
         }
-      }
-      if (auto timeout{std::get<5>(*req_param)}; timeout) {
-        if (timeout.value() > max_time_out) {
-          std::get<5>(*req_param) = max_time_out;
+        data->clear();
+        valread = recvfrom(sock_id, (char*)data->packet, PACKET_MAX_SIZE, 0, (struct sockaddr*)&cliaddr, &cli_addr_size);
+        if (valread == SOCKET_ERR) {
+          return false;
         }
+        ret = data->makeFrameStruct(valread);
+        return ret;
       }
-      if (auto req_file_size{std::get<6>(*req_param)}; !req_file_size && file_size) {
-        std::get<6>(*req_param) = file_size.value();
+      //  Send error to client
+      bool sendErr(const TFTPError err_id, const string& err_msg) noexcept {
+        bool ret{ true };
+        uint8_t err_size{ 5 };
+        err_size += err_msg.size();
+        ErrorPacket error(err_size, err_id, err_msg.c_str());
+        sendto(sock_id, &error.packet, error.packet_size, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
+        return ret;
       }
-      return true;
-    }
-  protected:
-    using BaseNet::ip_ver;
-    using BaseNet::srv_addr;
-    using BaseNet::ReturnRecipeVisit;
-    using BaseNet::returnRecipe;
+      //  Check if requested params (RFC 1782) are compatible with current settings
+      bool checkParam(FileMode* const req_param, optional<size_t> file_size) {
+        if (!req_param) {
+          return false;
+        }
+        if (auto buff_size{std::get<4>(*req_param)}; buff_size) {
+          if (buff_size.value() > max_buff_size) {
+            std::get<4>(*req_param) = max_buff_size;
+          }
+        }
+        if (auto timeout{std::get<5>(*req_param)}; timeout) {
+          if (timeout.value() > max_time_out) {
+            std::get<5>(*req_param) = max_time_out;
+          }
+        }
+        if (auto req_file_size{std::get<6>(*req_param)}; !req_file_size && file_size) {
+          std::get<6>(*req_param) = file_size.value();
+        }
+        return true;
+      }
+    protected:
+      using BaseNet::ip_ver;
+      using BaseNet::srv_addr;
+      using BaseNet::ReturnRecipeVisit;
+      using BaseNet::returnRecipe;
 
-    size_t max_file_size{2199023255552}; // 2 TB in bytes
-    uint8_t max_time_out{255};
-    uint16_t max_buff_size{65464};
+      size_t max_file_size{2199023255552}; // 2 TB in bytes
+      uint8_t max_time_out{255};
+      uint16_t max_buff_size{65464};
 
-    [[nodiscard]]string getPortID(void) const noexcept {
-      return std::to_string(port);
-    }
-    [[nodiscard]]string getIPAddr(void) const noexcept {
-      string addr {srv_addr};
-      return addr;
-    }
-    [[nodiscard]]string getIPVer(void) const noexcept {
-      string ver {"V4"};
-      if (ip_ver == AF_INET6) {
-        ver =  "V6";
+      [[nodiscard]]string getPortID(void) const noexcept {
+        return std::to_string(port);
       }
-      return ver;
-    }
+      [[nodiscard]]string getIPAddr(void) const noexcept {
+        string addr {srv_addr};
+        return addr;
+      }
+      [[nodiscard]]string getIPVer(void) const noexcept {
+        string ver {"V4"};
+        if (ip_ver == AF_INET6) {
+          ver =  "V6";
+        }
+        return ver;
+      }
   };
 
   //  Data transfer session manager (Network + File IO OS services)
@@ -2705,15 +2752,11 @@ namespace TFTPTools {
       }
       return ret;
     }
-  
-  
   private:
     atomic<bool>* terminate_transfer, *terminate_local;
     ACKPacket ack{};
     shared_ptr<Log> log;
     unique_ptr<BaseNet> mult_transfer;
-
-    
   };
 }
 
@@ -4573,25 +4616,33 @@ namespace TFTPClnLib {
   //  TFTP client - upload and download dat to/from TFTP server
   class TFTPCln final : TFTPTools::BaseNet {
     public :
-      TFTPCln() : TFTPTools::BaseNet(std::move(0)) {}
-      TFTPCln(const size_t& buff_size, const size_t& timeout) : TFTPTools::BaseNet(buff_size, timeout) {}
-      TFTPCln(size_t&& buff_size, size_t&& timeout) : TFTPTools::BaseNet(std::move(buff_size), std::move(timeout)) {}
-      TFTPCln(const std::optional<size_t>& buff_size, const std::optional<size_t>& timeout) : TFTPTools::BaseNet() {
-        if (buff_size.has_value()) {
-          this->buff_size = buff_size.value();
-        }
-        if (timeout.has_value()) {
-          this->timeout = timeout.value();
-        }
-      }
+      // TFTPCln() : TFTPTools::BaseNet(std::move(0)) {}
+      // TFTPCln(const size_t& buff_size, const size_t& timeout) : TFTPTools::BaseNet(buff_size, timeout) {}
+      // TFTPCln(size_t&& buff_size, size_t&& timeout) : TFTPTools::BaseNet(std::move(buff_size), std::move(timeout)) {}
+      // TFTPCln(const std::optional<size_t>& buff_size, const std::optional<size_t>& timeout) : TFTPTools::BaseNet() {
+      //   if (buff_size.has_value()) {
+      //     this->buff_size = buff_size.value();
+      //   }
+      //   if (timeout.has_value()) {
+      //     this->timeout = timeout.value();
+      //   }
+      // }
+      TFTPCln(std::string_view& srv_addr, const size_t& port, const size_t& buff_size = 512, const size_t& timeout = 6) 
+        : TFTPTools::BaseNet(port, AF_INET, srv_addr, buff_size, timeout) {}
+      TFTPCln(std::string_view&& srv_addr, const size_t&& port, const size_t&& buff_size = 512, const size_t&& timeout = 6) 
+        : TFTPTools::BaseNet(std::move(port), std::move(AF_INET), std::move(srv_addr), std::move(buff_size), std::move(timeout)) {}
+      TFTPCln(std::string_view& srv_addr, const size_t& port, const int& ip_ver, const size_t& buff_size = 512, const size_t& timeout = 6) 
+        : TFTPTools::BaseNet(port, ip_ver, srv_addr, buff_size, timeout) {}
+      TFTPCln(std::string_view&& srv_addr, const size_t&& port, const int& ip_ver, const size_t&& buff_size = 512, const size_t&& timeout = 6) 
+        : TFTPTools::BaseNet(std::move(port), std::move(ip_ver), std::move(srv_addr), std::move(buff_size), std::move(timeout)) {}
 
       TFTPCln(const TFTPCln&) = delete;
       TFTPCln(TFTPCln&&) = delete;
       TFTPCln& operator = (const TFTPCln&) = delete;
       TFTPCln& operator = (TFTPCln&&) = delete;
       
-      std::variant<size_t, std::string_view> downLoad(const std::string& srv_addr,
-                                                      const size_t& port,
+      std::variant<size_t, std::string_view> downLoad(/*const std::string& srv_addr,
+                                                      const size_t& port,*/
                                                       const std::string& remote_file,
                                                       std::filesystem::path& local_file,
                                                       std::optional<size_t> buff_size,
@@ -4609,7 +4660,7 @@ namespace TFTPClnLib {
         size_t packet_count {0}, curr_packet_size {0}, total_transfer_size {0};
         int send_dat;
         bool transform_res;
-        socklen_t addr_len;
+        //socklen_t addr_len;
         std::variant<bool, std::string> wr_res;
 
         //struct addrinfo *srv_conn_data{nullptr};
@@ -4931,8 +4982,8 @@ namespace TFTPClnLib {
           }
         }
       }
-      std::variant<size_t, std::string_view> upLoad(const std::string& srv_addr,
-                                                    const size_t& port,
+      std::variant<size_t, std::string_view> upLoad(/*const std::string& srv_addr,
+                                                    const size_t& port,*/
                                                     const std::string& remote_file,
                                                     std::filesystem::path& local_file,
                                                     std::optional<size_t> buff_size,
@@ -4943,7 +4994,7 @@ namespace TFTPClnLib {
         TFTPDataType::ReadPacket srv_response;
         //struct addrinfo *srv_conn_data;
         TFTPShortNames::TransferMode trans_mode;
-        socklen_t addr_len;
+        //socklen_t addr_len;
         std::unique_ptr<TFTPDataType::SendData<std::byte>> srv_data_bin;
         std::unique_ptr<TFTPDataType::SendData<char>> srv_data_str;
         std::unique_ptr<TFTPDataType::ReadFileData<std::byte>> file_buff_bin;
