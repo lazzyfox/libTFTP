@@ -20,7 +20,9 @@ constexpr std::string_view hlp {"Possible values for command line : \n -p port n
 int main(int argc, char *argv[]) {
   size_t port_id {8099};
   int ip_ver {AF_INET};
-  std::string_view ip_addr {"192.168.1.4"};
+  //std::string_view ip_addr {"192.168.1.4"};
+  //std::string_view ip_addr {"192.168.0.128"};
+  std::string_view ip_addr {"192.168.122.1"};
   int16_t thr_mult {-1};
   auto log_file = std::make_shared<TFTPTools::Log>("/home/fox/tmp/tftp_dir/srv/tftp_log.txt", true, true, true);
   std::filesystem::path work_dir{"/home/fox/tmp/tftp_dir/srv"};

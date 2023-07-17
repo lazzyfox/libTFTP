@@ -803,7 +803,7 @@ namespace TFTPDataType {
         if (count_mode > pack_size) {
           return true;
         }
-
+        //  Going thought RFC 1782 options until end of them
         while (count_mode < pack_size) {
           transf_mode.clear();
 
@@ -861,6 +861,10 @@ namespace TFTPDataType {
           count_begin = stoi(buffer);
           options.emplace_back(std::make_pair(option_name, count_begin));
           ++count_mode;
+          //  Check if already there is end of packet data (two zeros one by one)
+          if (packet[count_mode] == '\0' && packet[count_mode + 1] == '\0' ) {
+            break;
+          }
         }
 
         if (!options.empty()) {
@@ -970,6 +974,10 @@ namespace TFTPDataType {
           count_begin = stoi(buffer);
           options.emplace_back(std::make_pair(option_name, count_begin));
           ++count_mode;
+          //  Check if already there is end of packet data (two zeros one by one)
+          if (packet[count_mode] == '\0' && packet[count_mode + 1] == '\0' ) {
+            break;
+          }
         }
 
         if (!options.empty()) {
@@ -1032,8 +1040,13 @@ namespace TFTPDataType {
           return false;
         }
         try {
-          memcpy(blk_num, &packet[2], sizeof(uint16_t));
-          uint16_t error_code{(uint16_t) std::stoi(blk_num)};
+          uint16_t error_code;
+          if (packet[2] == '\0' || packet[2] == '0') {
+            error_code = packet[3];
+          } else {
+            memcpy(&error_code, &packet[2], sizeof(uint16_t));
+          }
+          
           std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_ERROR;
           std::get<1>(packet_frame_structure) = optional<TFTPError>{ ErrorCode.at(error_code) };
           std::get<2>(packet_frame_structure) = optional<TFTPMode>{};
@@ -1041,7 +1054,7 @@ namespace TFTPDataType {
           std::get<4>(packet_frame_structure) = optional<uint16_t>{ 5 };
           std::get<5>(packet_frame_structure) = optional<uint16_t>{ pack_size - 2 };
         } catch (...) {
-          ret = false;
+           ret = false;
         }
         return ret;
       };
@@ -2758,7 +2771,7 @@ namespace TFTPTools {
         auto res = sendto(sock_id, ss, 5, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
         std::cout << "Send helow"<<std::endl<<std::flush;
         res = recvfrom(sock_id, &buf, 100, MSG_WAITALL, (struct sockaddr*)&cliaddr, &cli_addr_size);
-        std::cout << "Resived helow"<<buf<<std::endl<<std::flush;
+        std::cout << "Resived helow : "<<buf<<std::endl<<std::flush;
       }
     private:
       atomic<bool>* terminate_transfer, *terminate_local;
@@ -4374,12 +4387,15 @@ namespace TFTPSrvLib {
         if (!ret) {
           return void();
         }
+        // Debug
+        std::cout<<"Transfer ready"<<std::endl<<std::flush;
         cv.wait(lck);
         //  Worker is ready for work, waiting customers requests in resource pool que
         while (!stop_worker.load(std::memory_order_relaxed) || !term_worker.load(std::memory_order_relaxed) || !current_terminate.load(std::memory_order_relaxed)) {
           transfer.reset(new TFTPTools::NetSock{srv_addr, ip_ver, &file_mode, &term_worker, &current_terminate, log });
 
-          transfer->test();
+          //transfer->test();
+          std::cout<<"Transfer activated"<<std::endl<<std::flush;
 
           if (transfer->service_ini_stat.has_value()) {
             continue;
@@ -4407,6 +4423,7 @@ namespace TFTPSrvLib {
             }
           
             ret = transfer->sendOACK(&oack_opt);
+            std::cout<<"Transfer sendOACK"<<std::endl<<std::flush;
             //  Check response and log
             if (!ret) {
               if (log) {
@@ -4415,6 +4432,7 @@ namespace TFTPSrvLib {
               continue;
             }
             auto recipe {returnRecipe(oack_packet)};
+            std::cout<<"Transfer get OACK response"<<std::endl<<std::flush;
             std::visit(oack_visit, recipe);
           }
           if (log) {
@@ -4509,6 +4527,13 @@ namespace TFTPSrvLib {
         
         // TFTPShortNames::ThrWorker current_worker;
         TFTPShortNames::FileMode* worker_set;
+        //  Check network status
+        if (service_ini_stat.has_value()) {
+          if (log) {
+            log->errMsg("Main thread", service_ini_stat.value());
+          }
+          return void();
+        }
         
         if (log) {
           log->infoMsg("Main thread", "Session manager started");
@@ -4520,13 +4545,14 @@ namespace TFTPSrvLib {
           if (fl_size) {
             fl_size.reset();
           }
+          sleep(1);
           valread = waitData(&data);
 
 
-          auto w{ WorkerRes::getRes() };
-          auto fl_mode = std::get<TFTPShortNames::FileMode*>(*w);
-          std::get<struct sockaddr_storage>(*fl_mode) = cliaddr;
-          std::get<std::condition_variable*>(*w)->notify_one();
+          // auto w{ WorkerRes::getRes() };
+          // auto fl_mode = std::get<TFTPShortNames::FileMode*>(*w);
+          // std::get<struct sockaddr_storage>(*fl_mode) = cliaddr;
+          // std::get<std::condition_variable*>(*w)->notify_one();
           
           
           if (!valread) {
@@ -4598,7 +4624,8 @@ namespace TFTPSrvLib {
           if (auto val {std::get<8>(data.trans_params)}; val.has_value()) {
             std::get<8>(*worker_set) = val.value();
           }
-          std::get<struct sockaddr_storage>(*worker_set) = std::get<struct sockaddr_storage>(data.trans_params);
+          //std::get<struct sockaddr_storage>(*worker_set) = std::get<struct sockaddr_storage>(data.trans_params);
+          std::get<struct sockaddr_storage>(*worker_set) = cliaddr;
           //  For write request - check free space available on disk
           if (request_code == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_WRITE) {
             std::error_code er;
