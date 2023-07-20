@@ -2765,14 +2765,6 @@ namespace TFTPTools {
         }
         return ret;
       }
-      void test(void) {
-        const char* ss = {"Helow"};
-        char buf[100];
-        auto res = sendto(sock_id, ss, 5, MSG_CONFIRM, (const struct sockaddr*)&cliaddr, cli_addr_size);
-        std::cout << "Send helow"<<std::endl<<std::flush;
-        res = recvfrom(sock_id, &buf, 100, MSG_WAITALL, (struct sockaddr*)&cliaddr, &cli_addr_size);
-        std::cout << "Resived helow : "<<buf<<std::endl<<std::flush;
-      }
     private:
       atomic<bool>* terminate_transfer, *terminate_local;
       ACKPacket ack{};
@@ -4394,7 +4386,6 @@ namespace TFTPSrvLib {
         while (!stop_worker.load(std::memory_order_relaxed) || !term_worker.load(std::memory_order_relaxed) || !current_terminate.load(std::memory_order_relaxed)) {
           transfer.reset(new TFTPTools::NetSock{srv_addr, ip_ver, &file_mode, &term_worker, &current_terminate, log });
 
-          //transfer->test();
           std::cout<<"Transfer activated"<<std::endl<<std::flush;
 
           if (transfer->service_ini_stat.has_value()) {

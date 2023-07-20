@@ -36,9 +36,9 @@ int main(int argc, char* argv[]) {
   int port_id {8099};
   //std::string_view ip_addr {"172.16.116.129"};
   //std::string_view ip_addr {"fe80::8879:432a:474f:f960"};
-  // std::string_view ip_addr {"192.168.1.4"};
+   std::string_view ip_addr {"192.168.1.4"};
   // std::string_view ip_addr {"192.168.0.128"};  
-  std::string_view ip_addr {"192.168.122.1"};
+  //std::string_view ip_addr {"192.168.122.1"};
   std::filesystem::path local_dir {std::filesystem::current_path()};
   std::string rem_file {"ak.txt"};
   std::string local_file {"l_ak.txt"};
