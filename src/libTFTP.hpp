@@ -321,7 +321,7 @@ namespace TFTPShortNames {
   constexpr uint8_t NETASCII_MODE_SIZE {8};
   constexpr uint8_t OCTET_MODE_SIZE {5};
   
-  //  RFC 1782 and above option extensions names
+  //  RFC 2347 and above option extensions names
   constexpr char TSIZE_OPT_NAME[]{ "tsize" };
   constexpr uint8_t TSIZE_OPT_SIZE {5};
   constexpr char TIMEOUT_OPT_NAME[]{ "timeout" };
@@ -1031,10 +1031,53 @@ namespace TFTPDataType {
         }
         return ret;
       };
-
+      //  Suppose there are not multicast options in OACK packet
+      auto getOACK = [this, pack_size](void) -> bool {
+        bool ret{ true };
+        uint16_t pack_size_count {2};
+        std::string param_name, param_data;
+        auto str_buff {&param_name};
+        OptExtent opt_extent;
+        uint16_t opt_val;
+        vector<ReqParam> param_vec;
+        std::get<0>(packet_frame_structure) = TFTPOpeCode::TFTP_OPCODE_OACK;
+        //  Go through all OACK packet content - RFC 2347
+        do {
+          //  Check parameters pair
+          do {
+            *str_buff += packet[pack_size_count];
+          } while (packet[pack_size_count] != '\0');
+          if (!param_data.empty()) { //  There are parameters pair
+            //  Parameter name ready and correct
+            if (OptExtGet.contains(param_name)) {
+              opt_extent = OptExtGet.at(param_name); 
+            } else {
+              return false;
+            }
+            //  Parameter value
+            auto [point, err_code] = std::from_chars(param_data.data(), param_data.data() + param_data.size(), opt_val);
+            if (err_code == std::errc()) {
+              return false;
+            }
+            //  Creating parameters vector
+            param_vec.emplace_back(std::make_pair(opt_extent, opt_val));
+            //  Prepare next loop circle
+            str_buff = &param_name;
+            param_name.clear();
+            param_data.clear();
+          } else { //  Just go to process parameter value (data for second pair value)
+            str_buff = &param_data;
+          }
+          ++pack_size_count;
+        } while(packet[pack_size_count] != '\0');
+        if (!param_vec.empty()) {
+          req_params = param_vec;
+        }
+        return ret;
+      };
+      
       auto getERROR = [this, pack_size](void) ->bool {
         bool ret{ true };
-        char blk_num[2];
 
         if (pack_size < ERROR_MIN_SIZE) {
           return false;
@@ -1063,6 +1106,7 @@ namespace TFTPDataType {
                                                                        {TFTPOpeCode::TFTP_OPCODE_WRITE, reqWR},
                                                                        {TFTPOpeCode::TFTP_OPCODE_DATA, getData},
                                                                        {TFTPOpeCode::TFTP_OPCODE_ACK, getACK},
+                                                                       {TFTPOpeCode::TFTP_OPCODE_OACK, getOACK},
                                                                        {TFTPOpeCode::TFTP_OPCODE_ERROR, getERROR} };
       auto rec_opcode = netToHost(packet);
       switch (rec_opcode) {
@@ -1383,7 +1427,7 @@ namespace TFTPDataType {
 
       packet_size = pos + 2;
       packet = new char[packet_size];
-      memcpy(packet, &opcode, sizeof(opcode));
+      memmove(packet, &opcode, sizeof(uint16_t));
       memcpy(packet+2, draft_packet, pos + 1);
     }
   };
@@ -1396,6 +1440,7 @@ namespace TFTPClnDataType {
   template<TFTPOpeCode op_code>
   struct WRRQ final : public Packet <char> {
     size_t pos {0};
+
     WRRQ(const string& filename, const TransferMode& trans_mode, const size_t& size) : Packet<char>(size) {
       const uint16_t curr_op_code{ htons((uint16_t)op_code) };
       const uint16_t overhead_field_size{ sizeof(curr_op_code) };
