@@ -4736,8 +4736,6 @@ namespace TFTPClnLib {
         bool transform_res;
         std::variant<bool, std::string> wr_res;
         std::optional<uint16_t> buff_size_val, timeout_size_val;
-        // struct timeval tv;
-        // tv.tv_sec = 0;
 
         //  Check input params
         if (srv_addr.empty() || remote_file.empty() || local_file.empty()) {
