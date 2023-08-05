@@ -4736,7 +4736,81 @@ namespace TFTPClnLib {
         bool transform_res;
         std::variant<bool, std::string> wr_res;
         std::optional<uint16_t> buff_size_val, timeout_size_val;
-
+        std::optional<std::string_view> process_result;
+        
+        //  Processing data transfer (download) packet from server 
+        const auto&& processPacket = 
+        [this, &packet_count, &curr_packet_size, &in_file, &ack_packet]
+        <typename T> requires TFTPShortNames::TransType<T> 
+        (TFTPDataType::RecPacket<T>*&& pack_data) noexcept -> std::optional<std::string_view> {
+          using namespace std::literals;
+          std::optional<std::string_view> ret{};
+        
+          if (!pack_data) {
+            return ret.emplace("Wrong data packet to analyze"sv);
+          }
+          auto send_dat = recvfrom(sock_id, pack_data->packet, pack_data->packet_size, 0, (struct sockaddr*) &cliaddr, &cli_addr_size);
+          //  Check transfer status
+          if (send_dat == TFTPShortNames::SOCKET_ERR) {
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+            return ret.emplace("Wrong incoming packet"sv);
+          }
+          //  Check package opcode (packet could be an error)
+          pack_data->pacDeCode();
+          if (auto opcode {pack_data->getOpCode()}; opcode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ERROR) {
+            std::string tmp_err_msg;
+            auto err_code {pack_data->getErrCode()};
+            if (err_code.has_value()) {
+              if (TFTPShortNames::ErrorCodeChar.contains(err_code.value())) {
+                tmp_err_msg += "Error code " + TFTPShortNames::ErrorCodeChar.at(err_code.value());
+              } else {
+                return ret.emplace("Transfer terminated with wrong error code"sv);
+              }
+            }
+            auto err_msg_data {pack_data->getData()};
+            if (err_msg_data.has_value()) {
+              std::string err_data ((char*)err_msg_data.value().first, err_msg_data.value().second);
+              tmp_err_msg += " " + err_data;
+            }
+            return ret.emplace(tmp_err_msg);
+          } else if (opcode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_DATA) {
+            auto pack_num {pack_data->getBlockNumber()};
+            //  Check packet number to get reordering case
+            if (pack_num.has_value()) {
+              if (pack_num.value() != packet_count) {
+                TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+                sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*)  &cliaddr, cli_addr_size);
+                return ret.emplace("Wrong incoming packet number"sv);
+              }
+            } else {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+              return ret.emplace("Wrong incoming packet"sv);
+            }
+            auto wr_res = in_file->writeFile<T>((T*)pack_data->packet, pack_data->packet_size);
+            if (auto res_val {std::get_if<std::string>(&wr_res)}; res_val) {
+              TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+              sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+              return ret.emplace(*res_val);
+            }
+            ack_packet->setNumber(packet_count);
+            send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+            if (send_dat == TFTPShortNames::SOCKET_ERR) {
+              return ret.emplace("Can't send transfer confirmation response"sv);
+            }
+            ++packet_count;
+            //  Check if data transfer finished
+            if (pack_data->packet_size > curr_packet_size) {
+              return ret;
+            }
+          } else {  //  Wrong packet opcode
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::DATA_REORDER_ERR_SIZE, TFTPShortNames::TFTPError::Illegal_TFTP_operation, TFTPShortNames::DATA_REORDER_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::DATA_REORDER_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+            return ret.emplace("Wrong incoming packet"sv);
+          }
+          return ret;
+        };
         //  Check input params
         if (srv_addr.empty() || remote_file.empty() || local_file.empty()) {
           ret = "Wrong input data";
@@ -4868,6 +4942,7 @@ namespace TFTPClnLib {
         //  Creating data transfer process
         while (true) {
           if (bin_mode) {
+            //process_result = processPacket(srv_data_bin.get());
             send_dat = recvfrom(sock_id, srv_data_bin->packet, srv_data_bin->packet_size, 0, (struct sockaddr*) &cliaddr, &cli_addr_size);
             if (send_dat >= 0) {
               curr_packet_size = send_dat;
@@ -5287,6 +5362,115 @@ namespace TFTPClnLib {
           ret += str_size + 1;
         }
         return ret;
+      }
+      //  Manage RFC 2347 transfer negotiation process
+      template <typename T, TFTPShortNames::TFTPOpeCode OpCode> requires TFTPShortNames::TransType<T>
+      [[nodiscard]] std::optional<std::string_view> OACKNegotiation() noexcept {
+        using namespace std::literals;
+
+        std::optional<std::string_view> ret;
+        TFTPShortNames::TransferMode trans_mode;
+        TFTPDataType::ReadPacket srv_response;
+
+
+        //  Negotiation process data
+        if (std::is_same<T, std::byte>::value) {
+          trans_mode = TFTPShortNames::TransferMode::octet;
+        } else {
+          trans_mode = TFTPShortNames::TransferMode::netascii;
+        }
+        auto req_pack_size {countPackSize(local_file, trans_mode, file_size, buff_size, timeout)};
+        TFTPClnDataType::WRRQ<OpCode> read_req(remote_file, trans_mode, req_pack_size, file_size, timeout, buff_size);
+        //  Negotiation process
+        auto send_dat = sendto(sock_id, read_req.packet, req_pack_size, 0, (struct sockaddr*) &socket_info, sock_info_size);
+        if (send_dat == TFTPShortNames::SOCKET_ERR) {
+          ret.emplace("Can't send transfer negotiation request"sv);
+          return ret;
+        }
+        srv_response.clear();
+        send_dat = recvfrom(sock_id, srv_response.packet, TFTPShortNames::PACKET_MAX_SIZE, 0, (struct sockaddr*) &cliaddr, &cli_addr_size);
+        if (send_dat == TFTPShortNames::SOCKET_ERR) {
+          ret.emplace("Can't send transfer negotiation request"sv);
+          return ret;
+        }
+        auto transform_res = srv_response.makeFrameStruct(send_dat);
+        if (!transform_res) {
+          ret.emplace("Can't create respose data structure"sv);
+          return ret;
+        }
+        if (auto mode {std::get<TFTPShortNames::TFTPOpeCode>(srv_response.packet_frame_structure)}; mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ERROR) {
+          if (auto err_code{std::get<std::optional<TFTPShortNames::TFTPError>>(srv_response.packet_frame_structure)}; TFTPShortNames::ErrorCodeChar.contains(err_code.value())) {
+            std::string err_str {"Error code - "};
+            err_str += TFTPShortNames::ErrorCodeChar.at(err_code.value());
+            if (auto err_msg_start{std::get<4>(srv_response.packet_frame_structure)}; err_msg_start.has_value()) {
+              size_t msg_start_pos {err_msg_start.value()};
+              if (auto err_msg_end{std::get<5>(srv_response.packet_frame_structure)}; err_msg_end.has_value()) {
+                size_t msg_end_pos {err_msg_start.value()};
+                std::string err_txt {&srv_response.packet[msg_start_pos], msg_end_pos - msg_start_pos};
+                err_str += " " + err_txt;
+              }
+            }
+            ret.emplace(err_str);
+          }
+          return ret;
+        } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_DATA) {
+          if (auto dat_msg_start{std::get<4>(srv_response.packet_frame_structure)}; dat_msg_start.has_value()) {
+            size_t msg_start_pos {dat_msg_start.value()};
+            if (auto dat_msg_end{std::get<5>(srv_response.packet_frame_structure)}; dat_msg_end.has_value()) {
+              size_t msg_end_pos {dat_msg_start.value()};
+              size_t msg_size {msg_end_pos - msg_start_pos};
+                wr_res = in_file->writeFile<T>((std::byte*)&srv_response.packet[msg_start_pos], msg_size);
+              //  File access event error message
+              if (auto res_val {std::get_if<std::string>(&wr_res)}; res_val) {
+                TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
+                sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*)/* srv_conn_data, addr_len*/ &cliaddr, cli_addr_size);
+                ret = *res_val;
+                return ret;
+              }
+              send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*)/* srv_conn_data, addr_len*/ &cliaddr, cli_addr_size);
+              if (send_dat == TFTPShortNames::SOCKET_ERR) {
+                ret.emplace("Can't send transfer confirmation response"sv);
+                return ret;
+              }
+              ++packet_count;
+              //  Check if transfer ended
+              if (msg_size < TFTPShortNames::PACKET_DATA_SIZE) {
+                return ret;
+              }
+            }
+          }
+        } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_OACK) {
+          auto set_transfer_params = [&timeout_size_val,  &buff_size_val, &file_size](auto& param) {
+            switch (param.first) {
+              case TFTPShortNames::OptExtent::tsize : file_size = param.second; break;
+              case TFTPShortNames::OptExtent::timeout : timeout_size_val = param.second; break;
+              case TFTPShortNames::OptExtent::blksize : buff_size_val = param.second; break;
+              case TFTPShortNames::OptExtent::multicast : break; // TODO: Should be defined later
+              default:;
+            }
+          };
+          if (auto srv_params {srv_response.req_params}; srv_params.has_value()) {
+            std::ranges::for_each(srv_params.value(), set_transfer_params);
+            auto set_sock_res {setSockOpt(buff_size_val, timeout_size_val)};
+            if (set_sock_res.has_value()) {
+              ret.emplace(set_sock_res.value());
+              return ret;
+            }
+          }
+          if (BaseNet::buff_size > buff_size) {
+            send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+            if (send_dat == TFTPShortNames::SOCKET_ERR) {
+              ret.emplace( "Can't send transfer confirmation response"sv);
+              return ret;
+            }
+            ++packet_count;
+          } else {
+            TFTPDataType::ErrorPacket err_msg(TFTPShortNames::OPTIONS_ERR_SIZE, TFTPShortNames::TFTPError::Options_are_not_supported, TFTPShortNames::OPTIONS_ERR);
+            sendto(sock_id, err_msg.packet, TFTPShortNames::OPTIONS_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+            ret.emplace("Wrong options"sv);
+            return ret;
+          }
+        } 
       }
   };
 }
