@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.9)
 project(libTFTP VERSION 0.0.8 DESCRIPTION "TFTP server library")
 
+IF (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+  message (FATAL_ERROR "Not a linux sytem. Processing terminated")
+ENDIF (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+
 option(BUILD_TESTS "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_DOC "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_BINARY "Build the bin file for autotesting when BUILD_BINARY is enabled." OFF)
