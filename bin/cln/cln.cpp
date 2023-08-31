@@ -181,6 +181,8 @@ int main(int argc, char* argv[]) {
   }
   //  Starting transfer
   path = local_dir /= local_file;
+
+
   cln = std::make_unique<TFTPCln> (ip_addr, port_id, buff_size, timeout);
   if (download.has_value()) {
     if (download.value()) {

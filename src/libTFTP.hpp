@@ -1,5 +1,7 @@
 #ifndef TFTPLIB_HPP 
 #define TFTPLIB_HPP
+// uncomment to disable assert()
+// #define NDEBUG
 
 /*
 Licensed under the MIT License <http://opensource.org/licenses/MIT>.
@@ -77,6 +79,7 @@ SOFTWARE.
 #include <regex>
 #include <cmath>
 #include <expected>
+#include <cassert>
 
 
 #include <stdio.h>
@@ -97,117 +100,92 @@ SOFTWARE.
 #include <linux/limits.h>
 
 namespace TwinMapType {
-  template <typename T1, typename T2>
-  class TwinMap {
+  template <typename T1, typename T2, size_t dim_size>
+  class TwinDim {
     public :
-      TwinMap () : t1_key{std::make_unique<std::unordered_map<T1, T2>>()}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()}{}
-      TwinMap (std::initializer_list<std::pair<const T1, T2>> lst)
-      : t1_key{std::make_unique<std::unordered_map<T1, T2>>(lst)}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()} {
-        auto copyMap = [this] (auto lst_pair) {
-          t2_key->try_emplace(lst_pair.second, lst_pair.first);
+      constexpr TwinDim (const std::initializer_list<std::pair<T1, T2>> lst) {
+        size_t count{0};
+
+        assert((void ("Number of initialisation variables in parameter's list should be equal dimension size"), lst.size() == dim_size));
+
+        for (auto dim_value : lst) {
+          t1_dim.at(count) = dim_value.first;
+          t2_dim.at(count) = dim_value.second;
+          ++count;
+        }
+      }
+      constexpr TwinDim (std::initializer_list<T1> lst1, std::initializer_list<T2> lst2) {
+        size_t count{0};
+        auto cpyLst = [this, &count]<typename T> (const T& val) {
+          if constexpr (std::is_same<T, T1>::value) {
+            t1_dim.at(count) = val;
+          } else {
+            t2_dim.at(count) = val;
+          }
+          ++count;
         };
-        std::ranges::for_each(lst, copyMap);
+        
+        assert((void ("Number of initialisation variables in first parameter's list should be equal dimension size"), lst1.size() == dim_size));
+        assert((void ("Number of initialisation variables in second parameter's list should be equal dimension size"), lst2.size() == dim_size));
+        
+        std::ranges::for_each(lst1, cpyLst);
+        count = 0;
+        std::ranges::for_each(lst2, cpyLst);
       }
-      TwinMap (std::initializer_list<std::pair<const T1, T2>>& lst)
-      : t1_key{std::make_unique<std::unordered_map<T1, T2>>(lst)}, t2_key{std::make_unique<std::unordered_map<T2, T1>>()} {
-        auto copyMap = [this] (auto lst_pair) {
-          t2_key->try_emplace(lst_pair.second, lst_pair.first);
-        };
-        std::ranges::for_each(lst, copyMap);
-      }
-      bool set(T1& t1, T2& t2) {
-        bool ret {true};
-        try {
-          t1_key->try_emplace(t1, t2);
-          t2_key->try_emplace(t2, t1);
-        } catch (...) {
-          ret = false;
-        }
-        return ret;
-      }
-      bool set(T1&& t1, T2&& t2) {
-        bool ret {true};
-        try {
-          t1_key->try_emplace(t1, t2);
-          t2_key->try_emplace(t2, t1);
-        } catch (...) {
-          ret = false;
-        }
-        return ret;
-      }
-      std::optional<T2> get(T1& t1) {
-        std::optional<T2> ret;
-        try {
-          if (auto t1_k {t1_key->find(t1)}; t1_k != t1_key->end()) {
-            ret = t1_key->at(t1);
-          }
-        } catch (...) {
-          if (ret.has_value()) {
-            ret.reset();
-          }
-        }
-        return ret;
-      }
-      std::optional<T2> get(T1&& t1) {
-        std::optional<T2> ret;
-        try {
-          if (auto t1_k {t1_key->find(t1)}; t1_k != t1_key->end()) {
-            ret = t1_key->at(t1);
-          }
-        } catch (...) {
-          if (ret.has_value()) {
-            ret.reset();
-          }
-        }
-        return ret;
-      }
-      std::optional<T1> get(T2& t2) {
-        std::optional<T1> ret; 
-        try {
-          if (auto t2_k {t2_key->find(t2)}; t2_k != t2_key->end()) {
-          ret = t2_key->at(t2);
-        }
-        } catch (...) {
-          if (ret.has_value()) {
-            ret.reset();
-          }
-        }
-        return ret;
-      }
-      std::optional<T1> get(T2&& t2) {
-        std::optional<T1> ret; 
-        try {
-          if (auto t2_k {t2_key->find(t2)}; t2_k != t2_key->end()) {
-          ret = t2_key->at(t2);
-        }
-        } catch (...) {
-          if (ret.has_value()) {
-            ret.reset();
-          }
-        }
-        return ret;
-      }
+      template <typename Tin, typename Tout>
+      constexpr Tout* at (Tin& val) const noexcept {
+        size_t count{0};
+        bool res{false};
+        Tout* ret{nullptr};
 
-
-
-
-      bool exists(const T1& t1) const {
+        static_assert(std::is_same<Tin, T1>::value || std::is_same<Tin, T2>::value, "Requested type should be equal dimensions types");
+        static_assert(std::is_same<Tout, T1>::value || std::is_same<Tout, T2>::value, "Requested type should be equal dimensions types");
+        
+        if constexpr (std::is_same<Tin, T1>::value) {
+          for (auto& dim_val : t1_dim) {
+            if (dim_val == val) {
+              res = true;
+              break;
+            }
+            ++count;
+          }
+          if (res && count < dim_size) {
+            ret = const_cast<T2*>(&t2_dim.at(count));
+          }
+        } else {
+          for (auto& dim_val : t2_dim) {
+            if (dim_val == val) {
+              res = true;
+              break;
+            }
+            ++count;
+          }
+          if (res && count < dim_size) {
+            ret = const_cast<T1*>(&t1_dim.at(count));
+          }
+        }
+        return ret;
+      }
+      template <typename T>
+      constexpr bool exists (const T& val) const noexcept {
         bool ret {false};
-        if (auto t1_k {t1_key->find(t1)}; t1_k != t1_key->end()) {
-          ret = true;
-        }
-        return ret;
-      }
-      bool exists(const T2& t2) const {
-        bool ret {false};
-        if (auto t2_k {t2_key->find(t2)}; t2_k != t2_key->end()) {
-          ret = true;
+
+        static_assert(std::is_same<T, T1>::value || std::is_same<T, T2>::value, "Requested type should be equal dimensions types");
+
+        if constexpr (std::is_same<T, T1>::value) {
+          if (auto res {std::ranges::find(t1_dim, val)}; res != t1_dim.end()) {
+            ret = true;
+          }
+        } else {
+          if (auto res {std::ranges::find(t2_dim, val)}; res != t2_dim.end()) {
+            ret = true;
+          }
         }
         return ret;
       }
     private :
-      std::unique_ptr<std::unordered_map<T1, T2>> t1_key{};
-      std::unique_ptr<std::unordered_map<T2, T1>> t2_key{};
+      std::array<T1, dim_size> t1_dim{};
+      std::array<T2, dim_size> t2_dim{};
   };
 }
 
@@ -438,6 +416,15 @@ namespace TFTPShortNames {
                                                      {TFTPError::File_exists, '6'},
                                                      {TFTPError::No_such_user, '7'},
                                                      {TFTPError::Options_are_not_supported, '8'}};
+  constexpr TwinMapType::TwinDim<TFTPError, char, 9> CodeConv {{TFTPError::Not_defined, '0'},
+                                                     {TFTPError::File_not_found, '1'},
+                                                     {TFTPError::Access_Violation, '2'},
+                                                     {TFTPError::Disk_full_or_Quota_exceeded, '3'},
+                                                     {TFTPError::Illegal_TFTP_operation, '4'},
+                                                     {TFTPError::Unknown_port_number, '5'},
+                                                     {TFTPError::File_exists, '6'},
+                                                     {TFTPError::No_such_user, '7'},
+                                                     {TFTPError::Options_are_not_supported, '8'}};
   const unordered_map<string, OptExtent> OptExtGet{ {"tsize", OptExtent::tsize},
                                                     {"timeout", OptExtent::timeout},
                                                     {"blksize", OptExtent::blksize},
@@ -446,6 +433,10 @@ namespace TFTPShortNames {
                                                     {OptExtent::timeout, "timeout"},
                                                     {OptExtent::blksize, "blksize"},
                                                     {OptExtent::multicast, "multicast"} };
+  constexpr TwinMapType::TwinDim<OptExtent, string_view, 4> OptExt { {OptExtent::tsize, "tsize"sv},
+                                                                {OptExtent::timeout, "timeout"sv},
+                                                                {OptExtent::blksize, "blksize"sv},
+                                                                {OptExtent::multicast, "multicast"sv} };
   
 }
 
@@ -1201,7 +1192,7 @@ namespace TFTPDataType {
   };
   //  Getting fixed size data packet from client
   template <typename T> requires TransType<T>
-  struct RecPacket final : public Packet<T>, public PacketTools<T> {
+  struct RecPacket final : Packet<T>, PacketTools<T> {
     // Data packet datagram size
     RecPacket(size_t data_size) : Packet<T>(data_size + DATA_OVERHEAD), PacketTools<T>(){}
     bool pacDeCode(void) {
@@ -1327,18 +1318,15 @@ namespace TFTPDataType {
   };
 
   struct ErrorPacket final : Packet<char> {
-    const unordered_map<TFTPError, uint16_t> CodeConv{ {TFTPError::Not_defined, 0},
-                                                       {TFTPError::File_not_found, 1},
-                                                       {TFTPError::Access_Violation, 2},
-                                                       {TFTPError::Disk_full_or_Quota_exceeded, 3},
-                                                       {TFTPError::Illegal_TFTP_operation, 4},
-                                                       {TFTPError::Unknown_port_number, 5},
-                                                       {TFTPError::File_exists, 6},
-                                                       {TFTPError::No_such_user, 7} };
     //  Error message has 5 byte overhead - 2 op_code, 2 error code, 1 -terminating 0                                                       
     ErrorPacket(const size_t err_msg_size, const TFTPError code, const char* msg) : Packet{ err_msg_size + PACKET_DATA_OVERHEAD } {
       constexpr uint16_t op_code{ 5 };
-      const ushort err_code{ CodeConv.at(code) };
+      char err_code;
+      if (ErrorCodeChar.contains(code)) {
+        err_code = ErrorCodeChar.at(code);
+      } else {
+        err_code = ErrorCodeChar.at(TFTPError::Not_defined);
+      }
       clear();
       memcpy(&packet[1], &op_code, sizeof(op_code));
       memmove(&packet[3], &err_code, sizeof(err_code));
@@ -1347,23 +1335,13 @@ namespace TFTPDataType {
   };
 
   template <size_t err_size> struct ConstErrorPacket final : BasePacket <err_size + 4, char> {
-    const unordered_map<TFTPError, uint16_t> CodeConv{ {TFTPError::Not_defined, 0},
-                                                       {TFTPError::File_not_found, 1},
-                                                       {TFTPError::Access_Violation, 2},
-                                                       {TFTPError::Disk_full_or_Quota_exceeded, 3},
-                                                       {TFTPError::Illegal_TFTP_operation, 4},
-                                                       {TFTPError::Unknown_port_number, 5},
-                                                       {TFTPError::File_exists, 6},
-                                                       {TFTPError::No_such_user, 7},
-                                                       {TFTPError::Options_are_not_supported, 8} };
     ConstErrorPacket(const TFTPError code, char* msg) {
-      //constexpr uint16_t op_code{ 5 };
       constexpr uint16_t op_code{ 5 };
-      uint16_t err_code;
-      if (CodeConv.contains(code)) {
-        err_code = CodeConv.at(code);
+      char err_code;
+      if (ErrorCodeChar.contains(code)) {
+        err_code = ErrorCodeChar.at(code);
       } else {
-        err_code = CodeConv.at(TFTPError::Not_defined);
+        err_code = ErrorCodeChar.at(TFTPError::Not_defined);
       }
       BasePacket<err_size + 4, char>::clear();
       memcpy(&BasePacket<err_size + 4, char>::packet[1], &op_code, sizeof(op_code));
@@ -2034,6 +2012,7 @@ namespace TFTPTools {
             return ret = "Socket SET RECEIVE BLOCK SIZE error"sv;
           }
           buff_size = blk_val;
+          packet_size = blk.value();
         }
         if (t_out.has_value()) {
           auto t_o {t_out.value()};
@@ -2113,6 +2092,7 @@ namespace TFTPTools {
       
       //  Transfer param
       size_t buff_size { 512 };
+      size_t packet_size {512};
       size_t timeout { 3 };
       size_t file_size { 0 };
       
@@ -2211,8 +2191,19 @@ namespace TFTPTools {
         }
         return ret;
       }
-
+      //  Send ACK (data acknowledge packet)
+      optional<string_view> sendACK(size_t& pack_number) {
+        optional<string_view> ret{};
+        ack_packet.setNumber(pack_number);
+        auto send_res = sendto(sock_id, ack_packet.packet, PACKET_ACK_SIZE, 0, (struct sockaddr*) &cliaddr, cli_addr_size);
+        if (send_res == SOCKET_ERR) {
+          ret.emplace(getERRNO());
+        }
+        return ret;
+      };
     private:
+      ACKPacket ack_packet;
+      
       [[nodiscard]] optional<string_view> init(const size_t port = DEFAULT_PORT) noexcept {
         optional<string_view> ret;
         struct addrinfo hints, * servinfo = nullptr;
@@ -4727,18 +4718,16 @@ namespace TFTPClnLib {
         std::variant<size_t, std::string_view> ret;
         std::unique_ptr<TFTPTools::FileIO> in_file;
         std::optional<size_t> file_size {0};
-        //TFTPShortNames::TransferMode trans_mode;
         TFTPDataType::ReadPacket srv_response;
         std::unique_ptr<TFTPDataType::RecPacket<std::byte>> srv_data_bin;
         std::unique_ptr<TFTPDataType::RecPacket<char>> srv_data_str;
         auto ack_packet {std::make_unique<TFTPDataType::ACKPacket>(0)};
         size_t packet_count {0}, curr_packet_size {0}, total_transfer_size {0};
-        //int send_dat;
         std::variant<bool, std::string> wr_res;
         std::optional<uint16_t> buff_size_val, timeout_size_val;
         std::optional<std::string_view> process_result;
         std::optional<size_t> t_size;
-        
+
         //  Processing data transfer (download) packet from server 
         const auto&& processPacket = 
         [this, &packet_count, &curr_packet_size, &in_file, &ack_packet, &total_transfer_size]
@@ -4814,7 +4803,6 @@ namespace TFTPClnLib {
           return ret;
         };
 
-
         //  Check input params
         if (srv_addr.empty() || remote_file.empty() || local_file.empty()) {
           ret = "Wrong input data";
@@ -4829,136 +4817,23 @@ namespace TFTPClnLib {
           ret = "Can't open file";
           return ret;
         }
-        // //  Negotiation process data
-        // if (bin_mode) {
-        //   trans_mode = TFTPShortNames::TransferMode::octet;
-        // } else {
-        //   trans_mode = TFTPShortNames::TransferMode::netascii;
-        // }
-        // auto req_pack_size {countPackSize(local_file, trans_mode, file_size, buff_size, timeout)};
-        // TFTPClnDataType::WRRQ<TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> read_req(remote_file, trans_mode, req_pack_size, file_size, timeout, buff_size);
-        // //  Transfer negotiation
-        // send_dat = sendto(sock_id, read_req.packet, req_pack_size, 0, (struct sockaddr*) &socket_info, sock_info_size);
-        // if (send_dat == TFTPShortNames::SOCKET_ERR) {
-        //   ret = "Can't send transfer negotiation request";
-        //   return ret;
-        // }
-        // srv_response.clear();
-        // send_dat = recvfrom(sock_id, srv_response.packet, TFTPShortNames::PACKET_MAX_SIZE, 0, (struct sockaddr*) &cliaddr, &cli_addr_size);
-        // if (send_dat == TFTPShortNames::SOCKET_ERR) {
-        //   ret = "Can't send transfer negotiation request";
-        //   return ret;
-        // }
-        // transform_res = srv_response.makeFrameStruct(send_dat);
-        // if (!transform_res) {
-        //   ret = "Can't create respose data structure";
-        //   return ret;
-        // }
-        // if (auto mode {std::get<TFTPShortNames::TFTPOpeCode>(srv_response.packet_frame_structure)}; mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_ERROR) {
-        //   if (auto err_code{std::get<std::optional<TFTPShortNames::TFTPError>>(srv_response.packet_frame_structure)}; TFTPShortNames::ErrorCodeChar.contains(err_code.value())) {
-        //     std::string err_str {"Error code - "};
-        //     err_str += TFTPShortNames::ErrorCodeChar.at(err_code.value());
-        //     if (auto err_msg_start{std::get<4>(srv_response.packet_frame_structure)}; err_msg_start.has_value()) {
-        //       size_t msg_start_pos {err_msg_start.value()};
-        //       if (auto err_msg_end{std::get<5>(srv_response.packet_frame_structure)}; err_msg_end.has_value()) {
-        //         size_t msg_end_pos {err_msg_start.value()};
-        //         std::string err_txt {&srv_response.packet[msg_start_pos], msg_end_pos - msg_start_pos};
-        //         err_str += " " + err_txt;
-        //       }
-        //     }
-        //     ret = err_str;
-        //   }
-        //   return ret;
-        // } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_DATA) {
-        //   if (auto dat_msg_start{std::get<4>(srv_response.packet_frame_structure)}; dat_msg_start.has_value()) {
-        //     size_t msg_start_pos {dat_msg_start.value()};
-        //     if (auto dat_msg_end{std::get<5>(srv_response.packet_frame_structure)}; dat_msg_end.has_value()) {
-        //       size_t msg_end_pos {dat_msg_start.value()};
-        //       size_t msg_size {msg_end_pos - msg_start_pos};
-        //       if (bin_mode) {
-        //         wr_res = in_file->writeFile<std::byte>((std::byte*)&srv_response.packet[msg_start_pos], msg_size);
-        //       } else {
-        //         wr_res = in_file->writeFile<char>(&srv_response.packet[msg_start_pos], msg_size);
-        //       }
-        //       //  File access event error message
-        //       if (auto res_val {std::get_if<std::string>(&wr_res)}; res_val) {
-        //         TFTPDataType::ErrorPacket err_msg(TFTPShortNames::FILE_OPENEN_ERR_SIZE, TFTPShortNames::TFTPError::Access_Violation, TFTPShortNames::FILE_OPENEN_ERR);
-        //         sendto(sock_id, err_msg.packet, TFTPShortNames::FILE_OPENEN_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*)/* srv_conn_data, addr_len*/ &cliaddr, cli_addr_size);
-        //         ret = *res_val;
-        //         return ret;
-        //       }
-        //       send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*)/* srv_conn_data, addr_len*/ &cliaddr, cli_addr_size);
-        //       if (send_dat == TFTPShortNames::SOCKET_ERR) {
-        //         ret = "Can't send transfer confirmation response";
-        //         return ret;
-        //       }
-        //       ++packet_count;
-        //       //  Check if transfer ended
-        //       if (msg_size < TFTPShortNames::PACKET_DATA_SIZE) {
-        //         return msg_size;
-        //       }
-        //       //  Creating data structure for data transfer
-        //       if (bin_mode) {
-        //         srv_data_bin = std::make_unique<TFTPDataType::RecPacket<std::byte>>(TFTPShortNames::PACKET_DATA_SIZE);
-        //       } else {
-        //         srv_data_str = std::make_unique<TFTPDataType::RecPacket<char>>(TFTPShortNames::PACKET_DATA_SIZE);
-        //       }
-        //     }
-        //   }
-        // } else if (mode == TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_OACK) {
-        //   auto set_transfer_params = [&timeout_size_val,  &buff_size_val, &file_size](auto& param) {
-        //     switch (param.first) {
-        //       case TFTPShortNames::OptExtent::tsize : file_size = param.second; break;
-        //       case TFTPShortNames::OptExtent::timeout : timeout_size_val = param.second; break;
-        //       case TFTPShortNames::OptExtent::blksize : buff_size_val = param.second; break;
-        //       case TFTPShortNames::OptExtent::multicast : break; // TODO: Should be defined later
-        //       default:;
-        //     }
-        //   };
-        //   if (auto srv_params {srv_response.req_params}; srv_params.has_value()) {
-        //     std::ranges::for_each(srv_params.value(), set_transfer_params);
-        //     auto set_sock_res {setSockOpt(buff_size_val, timeout_size_val)};
-        //     if (set_sock_res.has_value()) {
-        //       ret = set_sock_res.value();
-        //       return ret;
-        //     }
-        //   }
-        //   if (BaseNet::buff_size > buff_size) {
-        //     //  Creating data structure for data transfer
-        //       if (bin_mode) {
-        //         srv_data_bin = std::make_unique<TFTPDataType::RecPacket<std::byte>>(BaseNet::buff_size);
-        //       } else {
-        //         srv_data_str = std::make_unique<TFTPDataType::RecPacket<char>>(BaseNet::buff_size);
-        //       }
-        //     send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) &cliaddr, cli_addr_size);
-        //     if (send_dat == TFTPShortNames::SOCKET_ERR) {
-        //       ret = "Can't send transfer confirmation response";
-        //       return ret;
-        //     }
-        //     ++packet_count;
-        //   } else {
-        //     TFTPDataType::ErrorPacket err_msg(TFTPShortNames::OPTIONS_ERR_SIZE, TFTPShortNames::TFTPError::Options_are_not_supported, TFTPShortNames::OPTIONS_ERR);
-        //     sendto(sock_id, err_msg.packet, TFTPShortNames::OPTIONS_ERR_SIZE + TFTPShortNames::PACKET_DATA_OVERHEAD , 0, (struct sockaddr*) &cliaddr, cli_addr_size);
-        //     ret = "Wrong options";
-        //     return ret;
-        //   }
-        // } 
+        //  Negotiation process data
         if (bin_mode) {
+          srv_data_bin = std::make_unique<TFTPDataType::RecPacket<std::byte>>(buff_size.value());
           process_result = OACKNegotiation<std::byte, TFTPShortNames::TransferMode::octet, TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> (packet_count, 
                                                                                                                                            in_file.get(),
                                                                                                                                            remote_file,
                                                                                                                                            std::move(t_size), 
                                                                                                                                            std::move(buff_size),
                                                                                                                                            std::move(timeout));
-          srv_data_str.reset();
         } else {
+          srv_data_str = std::make_unique<TFTPDataType::RecPacket<char>>(buff_size.value());
           process_result = OACKNegotiation<char, TFTPShortNames::TransferMode::netascii, TFTPShortNames::TFTPOpeCode::TFTP_OPCODE_READ> (packet_count, 
                                                                                                                                          in_file.get(),
                                                                                                                                          remote_file,
                                                                                                                                          std::move(t_size), 
                                                                                                                                          std::move(buff_size), 
                                                                                                                                          std::move(timeout));
-          srv_data_bin.reset();
         }
         if (process_result.has_value()) {
           return process_result.value();
@@ -5402,7 +5277,7 @@ namespace TFTPClnLib {
       [[nodiscard]] std::optional<std::string_view> OACKNegotiation(size_t& packet_count,
                                                                     TFTPTools::FileIO*&& in_file,
                                                                     const std::string& file_name,
-                                                                    const std::optional<size_t>&& t_size,
+                                                                    std::optional<size_t>&& t_size,
                                                                     const std::optional<size_t>&& blk_size,
                                                                     const std::optional<uint8_t>&& timeout ) noexcept {
         using namespace std::literals;
@@ -5415,6 +5290,9 @@ namespace TFTPClnLib {
         std::optional file_size{0};
 
         //  Negotiation process data
+        if (!t_size.has_value()) {
+          t_size.emplace(0);
+        }
         auto req_pack_size {countPackSize(file_name, trans_mode, t_size, blk_size, timeout)};
         TFTPClnDataType::WRRQ<OpCode> read_req(file_name, trans_mode, req_pack_size, t_size, timeout, blk_size);
         //  Negotiation process
@@ -5493,7 +5371,7 @@ namespace TFTPClnLib {
               return ret;
             }
           }
-          if (BaseNet::buff_size > buff_size) {
+          if (BaseNet::buff_size > buff_size_val) {
             send_dat = sendto(sock_id, ack_packet->packet, TFTPShortNames::PACKET_ACK_SIZE, 0, (struct sockaddr*) &cliaddr, cli_addr_size);
             if (send_dat == TFTPShortNames::SOCKET_ERR) {
               ret.emplace( "Can't send transfer confirmation response"sv);

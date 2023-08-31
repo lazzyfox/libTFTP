@@ -14,59 +14,205 @@ using namespace MemoryManager;
 //  Data type check
 char test[] = { 't', 'e', 's', 't' };
 
-TEST(TwinMapData, IntString) {
-  TwinMap<int, std::string> twin;
-  int one{1}, two{2}, three{3};
-  std::string ex_str1{"one"}, ex_str2{"two"}, ex_str3{"three"};
-  ASSERT_TRUE(twin.set(one, ex_str1));
-  ASSERT_TRUE(twin.set(two, ex_str2));
-  ASSERT_TRUE(twin.set(three, ex_str3));
-  auto int_test1{twin.get(one)};
-  ASSERT_TRUE(int_test1.has_value());
-  auto int_test2{twin.get(two)};
-  ASSERT_TRUE(int_test2.has_value());
-  auto int_test3{twin.get(three)};
-  ASSERT_TRUE(int_test3.has_value());
-  auto str_test1{twin.get(ex_str1)};
-  ASSERT_TRUE(str_test1.has_value());
-  auto str_test2{twin.get(ex_str2)};
-  ASSERT_TRUE(str_test2.has_value());
-  auto str_test3{twin.get(ex_str3)};
-  ASSERT_TRUE(str_test3.has_value());
+//  TwinDim 
+TEST(TwinDim, CharIntPair) {
+  TwinDim<int, char, 3> dim{{0,'0'}, {1,'1'}, {2,'2'}};
+  int res_int0{0}, res_int1{1}, res_int2{2};
+  char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
+  int dim_int;
+  char dim_char;
+  
+  dim_char = *dim.at<int, char>(res_int0);
+  EXPECT_EQ(dim_char, res_char0);
+  
+  dim_char = *dim.at<int, char>(res_int1);
+  EXPECT_EQ(dim_char, res_char1);
 
-  EXPECT_EQ(1, str_test1.value());
-  EXPECT_EQ(2, str_test2.value());
-  EXPECT_EQ(3, str_test3.value());
-  EXPECT_STREQ(ex_str1.c_str(), int_test1.value().c_str());
-  EXPECT_STREQ(ex_str2.c_str(), int_test2.value().c_str());
-  EXPECT_STREQ(ex_str3.c_str(), int_test3.value().c_str());
+  dim_char = *dim.at<int, char>(res_int2);
+  EXPECT_EQ(dim_char, res_char2);
+
+  dim_int = *dim.at<char,int>(res_char0);
+  EXPECT_EQ(dim_int, res_int0);
+
+  dim_int = *dim.at<char,int>(res_char1);
+  EXPECT_EQ(dim_int, res_int1);
+
+  dim_int = *dim.at<char,int>(res_char2);
+  EXPECT_EQ(dim_int, res_int2);
+
+  EXPECT_TRUE (dim.exists<int>(res_int0));
+  EXPECT_TRUE (dim.exists<int>(res_int1));
+  EXPECT_TRUE (dim.exists<int>(res_int2));
+
+  EXPECT_TRUE (dim.exists<char>(res_char0));
+  EXPECT_TRUE (dim.exists<char>(res_char1));
+  EXPECT_TRUE (dim.exists<char>(res_char2));
 }
 
-TEST(TwinMapData, IntStringLst) {
-  int one{1}, two{2}, three{3};
-  std::string ex_str1{"one"}, ex_str2{"two"}, ex_str3{"three"};
-  TwinMap<int, std::string> twin{{one, ex_str1}, {two, ex_str2}, {three, ex_str3}};
+TEST(TwinDim, CharInt) {
+  TwinDim<int, char, 3> dim{{0,1,2},{'0','1','2'}};
+  int res_int0{0}, res_int1{1}, res_int2{2};
+  char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
+  int dim_int;
+  char dim_char;
+  dim_char = *dim.at<int, char>(res_int0);
+  EXPECT_EQ(dim_char, res_char0);
+  
+  dim_char = *dim.at<int, char>(res_int1);
+  EXPECT_EQ(dim_char, res_char1);
 
-  auto int_test1{twin.get(1)};
-  ASSERT_TRUE(int_test1.has_value());
-  auto int_test2{twin.get(2)};
-  ASSERT_TRUE(int_test2.has_value());
-  auto int_test3{twin.get(3)};
-  ASSERT_TRUE(int_test3.has_value());
-  auto str_test1{twin.get("one")};
-  ASSERT_TRUE(str_test1.has_value());
-  auto str_test2{twin.get("two")};
-  ASSERT_TRUE(str_test2.has_value());
-  auto str_test3{twin.get("three")};
-  ASSERT_TRUE(str_test3.has_value());
+  dim_char = *dim.at<int, char>(res_int2);
+  EXPECT_EQ(dim_char, res_char2);
 
-  EXPECT_EQ(1, str_test1.value());
-  EXPECT_EQ(2, str_test2.value());
-  EXPECT_EQ(3, str_test3.value());
-  EXPECT_STREQ(ex_str1.c_str(), int_test1.value().c_str());
-  EXPECT_STREQ(ex_str2.c_str(), int_test2.value().c_str());
-  EXPECT_STREQ(ex_str3.c_str(), int_test3.value().c_str());
+  dim_int = *dim.at<char,int>(res_char0);
+  EXPECT_EQ(dim_int, res_int0);
+
+  dim_int = *dim.at<char,int>(res_char1);
+  EXPECT_EQ(dim_int, res_int1);
+
+  dim_int = *dim.at<char,int>(res_char2);
+  EXPECT_EQ(dim_int, res_int2);
+
+  
+  EXPECT_TRUE (dim.exists<int>(res_int0));
+  EXPECT_TRUE (dim.exists<int>(res_int1));
+  EXPECT_TRUE (dim.exists<int>(res_int2));
+
+  EXPECT_TRUE (dim.exists<char>(res_char0));
+  EXPECT_TRUE (dim.exists<char>(res_char1));
+  EXPECT_TRUE (dim.exists<char>(res_char2));
 }
+
+TEST(TwinDim, CharStrPair) {
+  TwinDim<char, std::string_view, 3> dim{{'0', "null"sv}, {'1',"one"sv}, {'2',"two"sv}};
+  char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
+  std::string_view res_str0_v{"null"sv}, res_str1_v{"one"sv}, res_str2_v{"two"sv};
+  std::string res_str0{"null"}, res_str1{"one"}, res_str2{"two"};
+  std::string dim_str;
+  char dim_char;
+  
+  dim_char = *dim.at<std::string_view, char>(res_str0_v);
+  EXPECT_EQ(dim_char, res_char0);
+  
+  dim_char = *dim.at<std::string_view, char>(res_str1_v);
+  EXPECT_EQ(dim_char, res_char1);
+
+  dim_char = *dim.at<std::string_view, char>(res_str2_v);
+  EXPECT_EQ(dim_char, res_char2);
+
+  dim_str = *dim.at<char, std::string_view>(res_char0);
+  EXPECT_STREQ(dim_str.c_str(), res_str0.c_str());
+
+  dim_str = *dim.at<char, std::string_view>(res_char1);
+  EXPECT_STREQ(dim_str.c_str(), res_str1.c_str());
+
+  dim_str = *dim.at<char, std::string_view>(res_char2);
+  EXPECT_STREQ(dim_str.c_str(), res_str2.c_str());
+
+  EXPECT_TRUE (dim.exists<std::string_view>(res_str0_v));
+  EXPECT_TRUE (dim.exists<std::string_view>(res_str1_v));
+  EXPECT_TRUE (dim.exists<std::string_view>(res_str2_v));
+
+  EXPECT_TRUE (dim.exists<char>(res_char0));
+  EXPECT_TRUE (dim.exists<char>(res_char1));
+  EXPECT_TRUE (dim.exists<char>(res_char2));
+}
+
+TEST(TwinDim, CharStr) {
+  TwinDim<char, std::string_view, 3> dim{{'0', '1', '2'}, {"null"sv, "one"sv, "two"sv}};
+  char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
+  std::string_view res_str0_v{"null"sv}, res_str1_v{"one"sv}, res_str2_v{"two"sv};
+  std::string res_str0{"null"}, res_str1{"one"}, res_str2{"two"};
+  std::string dim_str;
+  char dim_char;
+  
+  dim_char = *dim.at<std::string_view, char>(res_str0_v);
+  EXPECT_EQ(dim_char, res_char0);
+  
+  dim_char = *dim.at<std::string_view, char>(res_str1_v);
+  EXPECT_EQ(dim_char, res_char1);
+
+  dim_char = *dim.at<std::string_view, char>(res_str2_v);
+  EXPECT_EQ(dim_char, res_char2);
+
+  dim_str = *dim.at<char, std::string_view>(res_char0);
+  EXPECT_STREQ(dim_str.c_str(), res_str0.c_str());
+
+  dim_str = *dim.at<char, std::string_view>(res_char1);
+  EXPECT_STREQ(dim_str.c_str(), res_str1.c_str());
+
+  dim_str = *dim.at<char, std::string_view>(res_char2);
+  EXPECT_STREQ(dim_str.c_str(), res_str2.c_str());
+
+  EXPECT_TRUE (dim.exists<std::string_view>(res_str0_v));
+  EXPECT_TRUE (dim.exists<std::string_view>(res_str1_v));
+  EXPECT_TRUE (dim.exists<std::string_view>(res_str2_v));
+
+  EXPECT_TRUE (dim.exists<char>(res_char0));
+  EXPECT_TRUE (dim.exists<char>(res_char1));
+  EXPECT_TRUE (dim.exists<char>(res_char2));
+}
+
+TEST(TwinDim, CharIntPair_WrongReq) {
+  TwinDim<int, char, 3> dim{{0,'0'}, {1,'1'}, {2,'2'}};
+  int res_int1{-1}, res_int2{5};
+  char res_char1{'5'}, res_char2{'3'};
+  
+  EXPECT_FALSE ((dim.at<int, char>(res_int1)));
+  EXPECT_FALSE ((dim.at<int, char>(res_int2)));
+  EXPECT_FALSE ((dim.at<char, int>(res_char1)));
+  EXPECT_FALSE ((dim.at<char, int>(res_char2)));
+  EXPECT_FALSE (dim.exists<int>(res_int1));
+  EXPECT_FALSE (dim.exists<int>(res_int2));
+  EXPECT_FALSE (dim.exists<char>(res_char1));
+  EXPECT_FALSE (dim.exists<char>(res_char2));
+}
+
+TEST(TwinDim, CharInt_WrongReq) {
+  TwinDim<int, char, 3> dim{{0,1,2},{'0','1','2'}};
+  int res_int1{-1}, res_int2{5};
+  char res_char1{'5'}, res_char2{'3'};
+  
+  EXPECT_FALSE ((dim.at<int, char>(res_int1)));
+  EXPECT_FALSE ((dim.at<int, char>(res_int2)));
+  EXPECT_FALSE ((dim.at<char, int>(res_char1)));
+  EXPECT_FALSE ((dim.at<char, int>(res_char2)));
+  EXPECT_FALSE (dim.exists<int>(res_int1));
+  EXPECT_FALSE (dim.exists<int>(res_int2));
+  EXPECT_FALSE (dim.exists<char>(res_char1));
+  EXPECT_FALSE (dim.exists<char>(res_char2));
+}
+
+TEST(TwinDim, CharStrPair_WrongReq) {
+  TwinDim<char, std::string_view, 3> dim{{'0', "null"sv}, {'1',"one"sv}, {'2',"two"sv}};
+  char res_char1{'3'}, res_char2{'5'};
+  std::string_view res_str1_v{"three"sv}, res_str2_v{"five"sv};
+
+  EXPECT_FALSE ((dim.at<char, std::string_view>(res_char1)));
+  EXPECT_FALSE ((dim.at<char, std::string_view>(res_char2)));
+  EXPECT_FALSE ((dim.at<std::string_view, char>(res_str1_v)));
+  EXPECT_FALSE ((dim.at<std::string_view, char>(res_str2_v)));
+  EXPECT_FALSE (dim.exists<char>(res_char1));
+  EXPECT_FALSE (dim.exists<char>(res_char2));
+  EXPECT_FALSE (dim.exists<std::string_view>(res_str1_v));
+  EXPECT_FALSE (dim.exists<std::string_view>(res_str2_v));
+}
+
+TEST(TwinDim, CharStr_WrongReq) {
+  TwinDim<char, std::string_view, 3> dim{{'0', '1', '2'}, {"null"sv, "one"sv, "two"sv}};
+  char res_char1{'3'}, res_char2{'5'};
+  std::string_view res_str1_v{"three"sv}, res_str2_v{"five"sv};
+
+  EXPECT_FALSE ((dim.at<char, std::string_view>(res_char1)));
+  EXPECT_FALSE ((dim.at<char, std::string_view>(res_char2)));
+  EXPECT_FALSE ((dim.at<std::string_view, char>(res_str1_v)));
+  EXPECT_FALSE ((dim.at<std::string_view, char>(res_str2_v)));
+  EXPECT_FALSE (dim.exists<char>(res_char1));
+  EXPECT_FALSE (dim.exists<char>(res_char2));
+  EXPECT_FALSE (dim.exists<std::string_view>(res_str1_v));
+  EXPECT_FALSE (dim.exists<std::string_view>(res_str2_v));
+}
+
 
 //  ReadFile Data
 TEST(ReadData, CharData) {
