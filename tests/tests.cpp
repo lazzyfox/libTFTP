@@ -16,16 +16,24 @@ char test[] = { 't', 'e', 's', 't' };
 
 
 
-TEST(TwinDim, ClassConstructor) {
-  
+TEST(TwinDim, TypeInt) {
   std::array<int, 5> arr{4,3,2,1,0};
   HashTree<int, int, int, 5> tree(arr);
-  auto a = tree.at(4);
   EXPECT_EQ(0, tree.at(4));
   EXPECT_EQ(1, tree.at(3));
   EXPECT_EQ(2, tree.at(2));
   EXPECT_EQ(3, tree.at(1));
   EXPECT_EQ(4, tree.at(0));
+}
+
+TEST(TwinDim, TypeSV) {
+  std::array<std::string_view, 5> arr{"four"sv,"three"sv,"two"sv,"one"sv, "zero"sv};
+  HashTree<std::string_view, int, int, 5> tree(arr);
+  EXPECT_EQ(0, tree.at("four"sv));
+  EXPECT_EQ(1, tree.at("three"sv));
+  EXPECT_EQ(2, tree.at("two"sv));
+  EXPECT_EQ(3, tree.at("one"sv));
+  EXPECT_EQ(4, tree.at("zero"sv));
 }
 
 //  TwinDim 

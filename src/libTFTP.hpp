@@ -160,16 +160,15 @@ inline namespace {
         auto hash_val {hash_obj(val)};
         do {
           middle = left_side + (right_side - left_side)/2;
-          auto h = arr[middle].hash_id;
           if (auto comp {arr[middle].hash_id <=> hash_val}; comp == 0) {
             ret = arr[middle].index;
             break;
           }
           else if (comp > 0) {
-            left_side = middle;
+            right_side = middle;
           }
           else if (comp < 0) {
-            right_side = middle;
+            left_side = middle;
           }
         } while (cont);
         
