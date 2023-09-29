@@ -99,38 +99,130 @@ SOFTWARE.
 #include <errno.h>
 #include <linux/limits.h>
 
+inline namespace {
+  template<typename T1, typename T2>
+  static consteval bool twoUnique() {
+    if constexpr (std::is_same<T1, T2>::value) {
+      return false;
+    }
+    else
+    {
+      return true;
+    }
+  }
+  template <typename T1, typename T2> concept TwinMapConc = twoUnique<T1, T2>();
+  
+  template <typename T1, typename HashType, typename IndexType> struct HashNode final {
+    HashType hash_id;
+    T1 val;
+    IndexType index; 
+
+    constexpr HashNode() = default;
+    constexpr HashNode(HashNode& node) 
+    : hash_id {node.hash_id},  val{node.val}, index{node.index} {}
+    constexpr HashNode(HashNode&& node) 
+    : hash_id {node.hash_id},  val{node.val}, index{node.index} {}
+    constexpr HashNode (const HashType& hash_id, const T1& val, const IndexType& index) 
+    : hash_id {hash_id}, val{val}, index{index} {}
+    constexpr HashNode (const HashType&& hash_id, const T1& val, const IndexType&& index) 
+    : hash_id {hash_id},  val{val}, index{index} {}
+    constexpr HashNode (const HashType&& hash_id, const T1&& val) 
+    : hash_id {hash_id}, val{val} {}
+    
+    HashNode& operator = (const HashNode& node) {
+      hash_id = node.hash_id;
+      val = node.val;
+      index = node.index;
+      return *this;
+    }
+    HashNode& operator = (const HashNode&& node) {
+      hash_id = node.hash_id;
+      val = node.val;
+      index = node.index;
+      return *this;
+    }
+  };
+
+  template <typename T1, typename HashType, typename IndexType, auto dim_size>  
+  class HashTree final {
+    using Node = HashNode<T1, HashType, IndexType>;
+
+    public :
+      constexpr HashTree (const std::array<T1, dim_size>& dim) {
+        IndexType arr_count{0};
+        std::ranges::transform(dim.cbegin(), dim.cend(), arr.begin(), [this, &arr_count](auto& node) {auto ret{Node(hash_obj(node), node, arr_count)}; ++arr_count; return ret;}); 
+        std::ranges::sort(arr, [](const auto& left, const auto& right){return left.hash_id < right.hash_id;});
+      }
+      
+      constexpr IndexType at(const T1& val) {
+        bool cont{true};
+        IndexType ret, left_side{0}, right_side{arr.size()}, middle;
+        auto hash_val {hash_obj(val)};
+        do {
+          middle = left_side + (right_side - left_side)/2;
+          auto h = arr[middle].hash_id;
+          if (auto comp {arr[middle].hash_id <=> hash_val}; comp == 0) {
+            ret = arr[middle].index;
+            break;
+          }
+          else if (comp > 0) {
+            left_side = middle;
+          }
+          else if (comp < 0) {
+            right_side = middle;
+          }
+        } while (cont);
+        
+        return ret;
+      }
+    private :
+      std::hash<T1> hash_obj;
+      std::array <Node, dim_size> arr;
+  };
+}
+
 namespace TwinMapType {
+  /**Version 1.0.0
+   * @brief Twin map class -  it is analog for std::unordered map but two differences:
+   * access possible by two elements (key and value (value is also key))
+   * could be used for compile time data structures
+   * 
+   * @return ** template<typename T1, typename T2> 
+   */
+  template<typename T1, typename T2>
+  static consteval bool twoUnique() {
+    if constexpr (std::is_same<T1, T2>::value) {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+  }
+  template <typename T1, typename T2> concept TwinMapConc = twoUnique<T1, T2>();
+ 
   template <typename T1, typename T2, size_t dim_size>
+  requires TwinMapConc <T1, T2>
   class TwinDim {
     public :
       constexpr TwinDim (const std::initializer_list<std::pair<T1, T2>> lst) {
         size_t count{0};
-
         assert((void ("Number of initialisation variables in parameter's list should be equal dimension size"), lst.size() == dim_size));
-
         for (auto dim_value : lst) {
           t1_dim.at(count) = dim_value.first;
           t2_dim.at(count) = dim_value.second;
           ++count;
         }
+        assert ((void ("Duplicated elements initialisation list "), isNotEqual(t1_dim)) );
+        assert ((void ("Duplicated elements initialisation list "), isNotEqual(t2_dim)) );
       }
       constexpr TwinDim (std::initializer_list<T1> lst1, std::initializer_list<T2> lst2) {
-        size_t count{0};
-        auto cpyLst = [this, &count]<typename T> (const T& val) {
-          if constexpr (std::is_same<T, T1>::value) {
-            t1_dim.at(count) = val;
-          } else {
-            t2_dim.at(count) = val;
-          }
-          ++count;
-        };
-        
-        assert((void ("Number of initialisation variables in first parameter's list should be equal dimension size"), lst1.size() == dim_size));
-        assert((void ("Number of initialisation variables in second parameter's list should be equal dimension size"), lst2.size() == dim_size));
-        
-        std::ranges::for_each(lst1, cpyLst);
-        count = 0;
-        std::ranges::for_each(lst2, cpyLst);
+        assert ((void ("Number of initialisation variables in first parameter's list should be equal dimension size"), lst1.size() == dim_size));
+        assert ((void ("Number of initialisation variables in second parameter's list should be equal dimension size"), lst2.size() == dim_size));
+        std::ranges::copy(lst1.begin(), lst1.end(), t1_dim.begin());
+        assert ((void ("Duplicated elements initialisation list "), isNotEqual(t1_dim)) );
+        std::ranges::copy(lst2.begin(), lst2.end(), t2_dim.begin());
+        assert ((void ("Duplicated elements initialisation list "), isNotEqual(t2_dim)) );
       }
       template <typename Tin, typename Tout>
       constexpr Tout* at (Tin& val) const noexcept {
@@ -186,6 +278,18 @@ namespace TwinMapType {
     private :
       std::array<T1, dim_size> t1_dim{};
       std::array<T2, dim_size> t2_dim{};
+
+      template<typename T, auto sz>
+      constexpr bool isNotEqual(std::array<T, sz>& source_dim) {
+        bool ret {false};
+        auto check_res = source_dim | std::views::all;
+        std::ranges::sort(check_res);
+        auto res = std::ranges::adjacent_find(check_res);
+        if (res == check_res.end()) {
+          ret = true;
+        }
+        return ret;
+      }
   };
 }
 

@@ -18,8 +18,9 @@ Command line parameters :
 -? parameters list
 */
 
+
 constexpr std::string_view hlp {"Possible values for command line : \n -p port number,\
-                                \n -a server IP address,\
+                                \error: invalid operands of types ‘<unresolved overloaded function typen -a server IP address,\
                                 \n -u upload file name,\
                                 \n -d download file name,\
                                 \n -l path to local directory,\

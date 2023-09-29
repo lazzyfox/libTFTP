@@ -5,6 +5,7 @@ IF (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   message (FATAL_ERROR "Not a linux sytem. Processing terminated")
 ENDIF (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
+option(BUILD_ALL "Build TESTING, BINARY FILES, and DOCUMENTATION BUILD_ALL is enabled." OFF)
 option(BUILD_TESTS "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_DOC "Build the unit tests when BUILD_TESTING is enabled." OFF)
 option(BUILD_BINARY "Build the bin file for autotesting when BUILD_BINARY is enabled." OFF)
@@ -64,6 +65,13 @@ install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
               "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME}/cmake)
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/src/ DESTINATION include)
+
+if (BUILD_ALL)
+  message(STATUS "Creating all")
+  set (BUILD_TESTS ON)
+  set (BUILD_BINARY ON)
+  set (BUILD_DOC ON)
+endif (BUILD_ALL)
 
 
 if (BUILD_TESTS)

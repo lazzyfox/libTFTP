@@ -9,14 +9,28 @@
 
 #include "../src/libTFTP.hpp"
 
-using namespace TwinMapType;
+//using namespace TwinMapType;
 using namespace MemoryManager;
 //  Data type check
 char test[] = { 't', 'e', 's', 't' };
 
+
+
+TEST(TwinDim, ClassConstructor) {
+  
+  std::array<int, 5> arr{4,3,2,1,0};
+  HashTree<int, int, int, 5> tree(arr);
+  auto a = tree.at(4);
+  EXPECT_EQ(0, tree.at(4));
+  EXPECT_EQ(1, tree.at(3));
+  EXPECT_EQ(2, tree.at(2));
+  EXPECT_EQ(3, tree.at(1));
+  EXPECT_EQ(4, tree.at(0));
+}
+
 //  TwinDim 
 TEST(TwinDim, CharIntPair) {
-  TwinDim<int, char, 3> dim{{0,'0'}, {1,'1'}, {2,'2'}};
+  TwinMapType::TwinDim<int, char, 3> dim{{0,'0'}, {1,'1'}, {2,'2'}};
   int res_int0{0}, res_int1{1}, res_int2{2};
   char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
   int dim_int;
@@ -50,7 +64,7 @@ TEST(TwinDim, CharIntPair) {
 }
 
 TEST(TwinDim, CharInt) {
-  TwinDim<int, char, 3> dim{{0,1,2},{'0','1','2'}};
+  TwinMapType::TwinDim<int, char, 3> dim{{0,1,2},{'0','1','2'}};
   int res_int0{0}, res_int1{1}, res_int2{2};
   char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
   int dim_int;
@@ -84,7 +98,7 @@ TEST(TwinDim, CharInt) {
 }
 
 TEST(TwinDim, CharStrPair) {
-  TwinDim<char, std::string_view, 3> dim{{'0', "null"sv}, {'1',"one"sv}, {'2',"two"sv}};
+  TwinMapType::TwinDim<char, std::string_view, 3> dim{{'0', "null"sv}, {'1',"one"sv}, {'2',"two"sv}};
   char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
   std::string_view res_str0_v{"null"sv}, res_str1_v{"one"sv}, res_str2_v{"two"sv};
   std::string res_str0{"null"}, res_str1{"one"}, res_str2{"two"};
@@ -119,7 +133,7 @@ TEST(TwinDim, CharStrPair) {
 }
 
 TEST(TwinDim, CharStr) {
-  TwinDim<char, std::string_view, 3> dim{{'0', '1', '2'}, {"null"sv, "one"sv, "two"sv}};
+  TwinMapType::TwinDim<char, std::string_view, 3> dim{{'0', '1', '2'}, {"null"sv, "one"sv, "two"sv}};
   char res_char0{'0'}, res_char1{'1'}, res_char2{'2'};
   std::string_view res_str0_v{"null"sv}, res_str1_v{"one"sv}, res_str2_v{"two"sv};
   std::string res_str0{"null"}, res_str1{"one"}, res_str2{"two"};
@@ -154,7 +168,7 @@ TEST(TwinDim, CharStr) {
 }
 
 TEST(TwinDim, CharIntPair_WrongReq) {
-  TwinDim<int, char, 3> dim{{0,'0'}, {1,'1'}, {2,'2'}};
+  TwinMapType::TwinDim<int, char, 3> dim{{0,'0'}, {1,'1'}, {2,'2'}};
   int res_int1{-1}, res_int2{5};
   char res_char1{'5'}, res_char2{'3'};
   
@@ -169,7 +183,7 @@ TEST(TwinDim, CharIntPair_WrongReq) {
 }
 
 TEST(TwinDim, CharInt_WrongReq) {
-  TwinDim<int, char, 3> dim{{0,1,2},{'0','1','2'}};
+  TwinMapType::TwinDim<int, char, 3> dim{{0,1,2},{'0','1','2'}};
   int res_int1{-1}, res_int2{5};
   char res_char1{'5'}, res_char2{'3'};
   
@@ -184,7 +198,7 @@ TEST(TwinDim, CharInt_WrongReq) {
 }
 
 TEST(TwinDim, CharStrPair_WrongReq) {
-  TwinDim<char, std::string_view, 3> dim{{'0', "null"sv}, {'1',"one"sv}, {'2',"two"sv}};
+  TwinMapType::TwinDim<char, std::string_view, 3> dim{{'0', "null"sv}, {'1',"one"sv}, {'2',"two"sv}};
   char res_char1{'3'}, res_char2{'5'};
   std::string_view res_str1_v{"three"sv}, res_str2_v{"five"sv};
 
@@ -199,7 +213,7 @@ TEST(TwinDim, CharStrPair_WrongReq) {
 }
 
 TEST(TwinDim, CharStr_WrongReq) {
-  TwinDim<char, std::string_view, 3> dim{{'0', '1', '2'}, {"null"sv, "one"sv, "two"sv}};
+  TwinMapType::TwinDim<char, std::string_view, 3> dim{{'0', '1', '2'}, {"null"sv, "one"sv, "two"sv}};
   char res_char1{'3'}, res_char2{'5'};
   std::string_view res_str1_v{"three"sv}, res_str2_v{"five"sv};
 
