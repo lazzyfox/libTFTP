@@ -2,11 +2,13 @@
 .git
 .github
 .idea
+.clang-format
 log.html
 output.xml
 report.html
 results/
 build/
+doc/html/
 tests/build
 CMakeFiles/
 autotests/__pycache__

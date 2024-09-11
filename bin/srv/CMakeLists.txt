@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.2)
-project(tftp_srv VERSION 0.0.2 DESCRIPTION "TFTP server test application build")
+cmake_minimum_required(VERSION 3.9)
+project(tftp_srv VERSION 0.0.25 DESCRIPTION "TFTP server test application build")
 set(CMAKE_CXX_STANDARD 23)
 set (CMAKE_CXX_COMPILER_VERSION 13)
 set(CMAKE_C_COMPILER ${C_COMPILER})

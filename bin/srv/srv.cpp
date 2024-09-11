@@ -1,3 +1,5 @@
+#include <future>
+
 #include "../../src/libTFTP.hpp"
 
 
@@ -14,20 +16,26 @@ Command line parameters :
 -? parameters list
 */
 
-constexpr std::string_view hlp {"Possible values for command line : \n -p port number,\n -v IP version (4 or 6),\n -a server IP address to bind a service for,\n -m core multiplication number (0 - default value -x : number of treads, positive number is multiplication coefficient),\n -d server working directory,\n -l path to log file"};
+static constexpr std::string_view hlp {"Possible values for command line :\
+                                 \n -p port number,\
+                                 \n -v IP version (4 or 6),\
+                                 \n -a server IP address to bind a service for,\
+                                 \n -m core multiplication number (0 - default value -x : number of treads, positive number is multiplication coefficient),\
+                                 \n -d server working directory,\
+                                 \n -l path to log file"};
 
 
 int main(int argc, char *argv[]) {
   size_t port_id {8099};
   int ip_ver {AF_INET};
-  std::string_view ip_addr {"192.168.1.4"};
-  //std::string_view ip_addr {"192.168.0.128"};
-  //std::string_view ip_addr {"192.168.122.1"};
+  std::string_view ip_addr;
   int16_t thr_mult {-1};
-  auto log_file = std::make_shared<TFTPTools::Log>("/home/fox/tmp/tftp_dir/srv/tftp_log.txt", true, true, true);
-  std::filesystem::path work_dir{"/home/fox/tmp/tftp_dir/srv"};
-
-  auto ver_check = [](char* ver){
+  auto local_dir {std::filesystem::current_path()};
+  std::filesystem::path work_dir{local_dir};
+  auto log_file {std::make_shared<TFTPTools::Log>(std::filesystem::path(local_dir/="tftp_log.txt"), true, true, true)};
+  
+  //  Check IP version
+  const auto&& ver_check = [](char* ver) {
     int ret;
     std::string ver_str {ver};
     auto dig_ver {stoi(ver_str)};
@@ -39,8 +47,8 @@ int main(int argc, char *argv[]) {
     }
     return ret;
   };
- 
-  if (argc > 1) { //  Reading options from CLI
+  //  Reading options from CLI
+  if (argc > 1) { 
     int opt;
     char* pEnd;
     while ((opt = getopt(argc, argv, "p:v:a:d:l:m:?")) != -1) {
@@ -56,9 +64,11 @@ int main(int argc, char *argv[]) {
       }
     }
   }
- 
+  auto hello_msg = std::async(std::launch::deferred,[&]() {std::cout << TFTPShortNames::lib_hello<<TFTPShortNames::lib_ver<<std::endl<<std::flush;});
+  
+  //  Run server  
   TFTPSrv srv{std::move(work_dir), std::move(ip_ver), std::move(ip_addr), std::move(port_id), std::move(thr_mult), log_file};
-  auto stat = srv.srvStart();
+  const auto stat = srv.srvStart();
   if (!stat) {
     return 1;
   }
